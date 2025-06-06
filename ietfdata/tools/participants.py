@@ -240,10 +240,14 @@ class ParticipantsMatcher:
         _seen_full:set[str] = set()
         _dt = None
     
-    def find_participants_ietf_datatracker(self):
+    def _init_datatracker(self,sqlite_file:str):
+        self._dt  = DataTrackerExt(DTBackendArchive(sqlite_file=sqlite_file))
+        
+    def find_participants_ietf_datatracker(self,sqlite_file:str):
         # Add identifiers based on the IETF DataTracker:
         if self._dt is None:
-            self._dt  = DataTrackerExt(cache_timeout = timedelta(days=7))
+            self._init_datatracker(sqlite_file)
+        assert(self._dt is not None)
         for msg in self._dt.emails():
             if msg.address in ignore:
                 continue
@@ -263,10 +267,11 @@ class ParticipantsMatcher:
             if str(resource.name) == "/api/v1/name/extresourcename/orcid/":
                 self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "orcid", resource.value)
     
-    def find_participants_ietf_ml(self,ma_cache:Optional[Path]=None):
+    def find_participants_ietf_ml(self,sqlite_file:str,ma_cache:Optional[Path]=None):
         ma = None
         if self._dt is None:
-            self._dt = DataTrackerExt(cache_timeout = timedelta(days=7))
+            self._init_datatracker(sqlite_file)
+        assert(self._dt is not None)
         if ma_cache is not None and ma_cache.is_file():
             ma_cache_str = str(ma_cache)
             ma   = MailArchive(sqlite_file=ma_cache_str)
@@ -277,12 +282,12 @@ class ParticipantsMatcher:
         # addresses, to the ignore list. These will never appear in the legitimate
         # "From:" lines but are frequently used by spammers.
         for n in ma.mailing_list_names():
-            ignore.append(f"{n}@ietf.org")
-            ignore.append(f"{n}-admin@ietf.org")
-            ignore.append(f"{n}-archive@ietf.org")
-            ignore.append(f"{n}-archive@lists.ietf.org")
-            ignore.append(f"{n}-archive@megatron.ietf.org")
-            ignore.append(f"{n}-request@ietf.org")
+            self._ignore.append(f"{n}@ietf.org")
+            self._ignore.append(f"{n}-admin@ietf.org")
+            self._ignore.append(f"{n}-archive@ietf.org")
+            self._ignore.append(f"{n}-archive@lists.ietf.org")
+            self._ignore.append(f"{n}-archive@megatron.ietf.org")
+            self._ignore.append(f"{n}-request@ietf.org")
         
         for n in ma.mailing_list_names():
             ml = ma.mailing_list(n)
@@ -316,17 +321,19 @@ class ParticipantsMatcher:
 
 if __name__ == "__main__":
     if len(sys.argv) == 2:
-        old_path = None
-        new_path = Path(sys.argv[1])
+        sqlite_file = sys.argv[1]
+        old_path    = None
+        new_path    = Path(sys.argv[2])
     elif len(sys.argv) == 3:
-        old_path = Path(sys.argv[1])
-        new_path = Path(sys.argv[2])
+        sqlite_file = sys.argv[1]
+        old_path    = Path(sys.argv[2])
+        new_path    = Path(sys.argv[3])
     else:
-        print("Usage: python3 -m ietfdata.tools.participants [new.json]")
-        print("   or: python3 -m ietfdata.tools.participants [old.json] [new.json]")
+        print("Usage: python3 -m ietfdata.tools.participants <ietfdata.sqlite> <new.json>")
+        print("   or: python3 -m ietfdata.tools.participants <ietfdata.sqlite> <old.json> <new.json>")
         sys.exit(1)
-
     print("*** ietfdata.tools.participants")
+    print(f"Using SQLite DB file:{sqlite_file}")
     if old_path is not None:
         print(f"Loading: {old_path}")
 
@@ -353,9 +360,10 @@ if __name__ == "__main__":
              ]
 
     pm = ParticipantsMatcher(old_path=old_path, ignore=ignore)
-    pm.find_participants_ietf_datatracker()
-    pm.find_participants_ietf_ml()
+    pm.find_participants_ietf_datatracker(sqlite_file)
+    pm.find_participants_ietf_ml(sqlite_file)
     
     pm.dump(new_path)
+
 
 

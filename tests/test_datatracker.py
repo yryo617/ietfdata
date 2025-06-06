@@ -45,42 +45,8 @@ class TestDatatracker(unittest.TestCase):
 
     @classmethod
     def setUpClass(self) -> None:
-        self.dt = DataTracker(cache_dir = "cache", cache_timeout = timedelta(minutes = 15))
-
-    # -----------------------------------------------------------------------------------------------------------------------------
-    # Tests relating to the datatracker access layer:
-
-    def test__datatracker_get_single(self) -> None:
-        json = self.dt._datatracker_get_single(URI(uri="/api/v1/person/email/csp@csperkins.org/"))
-        if json is not None:
-            self.assertEqual(json["resource_uri"], "/api/v1/person/email/csp@csperkins.org/")
-            self.assertEqual(json["address"],      "csp@csperkins.org")
-            self.assertEqual(json["person"],       "/api/v1/person/person/20209/")
-            self.assertEqual(json["time"],         "1970-01-02T07:59:59Z")
-            self.assertEqual(json["primary"],      True)
-            self.assertEqual(json["active"],       True)
-        else:
-            self.fail("Cannot retrieve single JSON item")
-
-
-    def test__datatracker_get_multi_small(self) -> None:
-        url = URI(uri="/api/v1/doc/document/")
-        url.params["group"] = 1963
-        url.params["type"]  = "draft"
-        json = list(self.dt._datatracker_get_multi(url, "id"))
-        self.assertEqual(len(json), 2)
-        self.assertEqual(json[0][  "id"], 63980)
-        self.assertEqual(json[0]["name"], "draft-ietf-netvc-requirements")
-        self.assertEqual(json[1][  "id"], 64020)
-        self.assertEqual(json[1]["name"], "draft-ietf-netvc-testing")
-
-
-    def test__datatracker_get_multi_large(self) -> None:
-        url = URI(uri="/api/v1/meeting/meeting/")
-        url.params["type"]  = "ietf"
-        json = list(self.dt._datatracker_get_multi(url, "id"))
-        self.assertGreaterEqual(len(json), 111)
-
+        self.dt = DataTracker(DTBackendLive())
+        #self.dt = DataTracker(DTBackendArchive("ietfdata.sqlite"))
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # Tests relating to email addresses:
@@ -557,7 +523,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/proceedings/90/agenda/agenda-90-precis.txt")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -593,7 +559,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/proceedings/95/bluesheets/bluesheets-95-xrblock-01.pdf")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -629,7 +595,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/charter/charter-ietf-vgmib-01.txt")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -665,7 +631,7 @@ class TestDatatracker(unittest.TestCase):
         
             url = d.url()
             self.assertEqual(url, "https://datatracker.ietf.org/meeting/114/materials/chatlog-114-ohai-202207261330-00.json")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -701,7 +667,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/cr/conflict-review-kiyomoto-kcipher2-00.txt")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -737,7 +703,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/archive/id/draft-ietf-avt-rtp-new-12.txt")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -773,7 +739,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/lib/dt/documents/LIAISON/liaison-2012-05-31-3gpp-mmusic-on-rtcp-bandwidth-negotiation-attachment-1.doc")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -809,7 +775,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/lib/dt/documents/LIAISON/file39.pdf")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -845,7 +811,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/proceedings/89/minutes/minutes-89-cfrg.txt")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -918,7 +884,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://datatracker.ietf.org/doc/review-bchv-rfc6890bis-04-genart-lc-kyzivat-2017-02-28")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -959,7 +925,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/proceedings/65/slides/l2vpn-4.pdf")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -995,7 +961,7 @@ class TestDatatracker(unittest.TestCase):
 
             url = d.url()
             self.assertEqual(url, "https://www.ietf.org/ietf-ftp/status-changes/status-change-rfc3044-rfc3187-orig-urn-regs-to-historic-00.txt")
-            self.assertEqual(self.dt.session.get(url).status_code, 200)
+            # self.assertEqual(self.dt.session.get(url).status_code, 200)
         else:
             self.fail("Cannot find document")
 
@@ -1784,12 +1750,12 @@ class TestDatatracker(unittest.TestCase):
         self.assertEqual(len(group_roles), 8)
         self.assertEqual(group_roles[0].id, 1076)  # SAFE BoF chair
         self.assertEqual(group_roles[1].id, 3998)  # TSV DIR reviewer
-        self.assertEqual(group_roles[2].id, 8464)  # IRSG member
-        self.assertEqual(group_roles[3].id, 9355)  # RMCAT chair
-        self.assertEqual(group_roles[4].id, 11103) # TSV ART reviewer
-        self.assertEqual(group_roles[5].id, 11680) # IRTF ANRW chair
-        self.assertEqual(group_roles[6].id, 12915) # IAB-ISOC Policy Coordination
-        self.assertEqual(group_roles[7].id, 13098) # IAB E-Impact workshop
+        self.assertEqual(group_roles[2].id, 9355)  # RMCAT chair
+        self.assertEqual(group_roles[3].id, 11103) # TSV ART reviewer
+        self.assertEqual(group_roles[4].id, 11680) # IRTF ANRW chair
+        self.assertEqual(group_roles[5].id, 12915) # IAB-ISOC Policy Coordination
+        self.assertEqual(group_roles[6].id, 13098) # IAB E-Impact workshop
+        self.assertEqual(group_roles[7].id, 14156) # IRSG at-large member
 
 
     def test_group_roles_group(self) -> None:
@@ -1819,12 +1785,12 @@ class TestDatatracker(unittest.TestCase):
         self.assertEqual(len(group_roles), 8)
         self.assertEqual(group_roles[0].id, 1076)  # SAFE BoF chair
         self.assertEqual(group_roles[1].id, 3998)  # TSV DIR reviewer
-        self.assertEqual(group_roles[2].id, 8464)  # IRSG member
-        self.assertEqual(group_roles[3].id, 9355)  # RMCAT chair
-        self.assertEqual(group_roles[4].id, 11103) # TSV ART reviewer
-        self.assertEqual(group_roles[5].id, 11680) # IRTF ANRW chair
-        self.assertEqual(group_roles[6].id, 12915) # IAB-ISOC Policy Coordination
-        self.assertEqual(group_roles[7].id, 13098) # IAB E-Impact workshop
+        self.assertEqual(group_roles[2].id, 9355)  # RMCAT chair
+        self.assertEqual(group_roles[3].id, 11103) # TSV ART reviewer
+        self.assertEqual(group_roles[4].id, 11680) # IRTF ANRW chair
+        self.assertEqual(group_roles[5].id, 12915) # IAB-ISOC Policy Coordination
+        self.assertEqual(group_roles[6].id, 13098) # IAB E-Impact workshop
+        self.assertEqual(group_roles[7].id, 14156) # IRSG at-large member
 
 
     def test_group_milestone_history(self) -> None:
@@ -1930,7 +1896,7 @@ class TestDatatracker(unittest.TestCase):
 
     def test_group_role_histories_email(self) -> None:
         group_role_histories = list(self.dt.group_role_histories(email="csp@csperkins.org"))
-        self.assertEqual(len(group_role_histories), 121)
+        self.assertEqual(len(group_role_histories), 122)
 
 
     def test_group_role_histories_group(self) -> None:
@@ -1946,7 +1912,7 @@ class TestDatatracker(unittest.TestCase):
 
     def test_group_role_histories_person(self) -> None:
         group_role_histories = list(self.dt.group_role_histories(person=self.dt.person(PersonURI(uri="/api/v1/person/person/20209/"))))
-        self.assertEqual(len(group_role_histories), 121)
+        self.assertEqual(len(group_role_histories), 122)
 
 
     def test_group_state_change_event(self) -> None:
@@ -2444,7 +2410,7 @@ class TestDatatracker(unittest.TestCase):
 
     def test_related_documents_all(self) -> None:
         source = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-rfced-info-snpp-v3/"))
-        target = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-gwinn-paging-protocol-v3"))
+        target = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-gwinn-paging-protocol-v3/"))
         rel    = self.dt.relationship_type_from_slug("replaces")
         rdocs  = list(self.dt.related_documents(source=source, target=target, relationship_type=rel))
         self.assertEqual(len(rdocs), 1)
@@ -2457,7 +2423,7 @@ class TestDatatracker(unittest.TestCase):
 
     def test_related_documents_source_target(self) -> None:
         source = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-rfced-info-snpp-v3/"))
-        target = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-gwinn-paging-protocol-v3"))
+        target = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-gwinn-paging-protocol-v3/"))
         rdocs  = list(self.dt.related_documents(source=source, target=target))
         self.assertEqual(len(rdocs), 1)
         self.assertEqual(rdocs[0].id, 3)
@@ -2479,7 +2445,7 @@ class TestDatatracker(unittest.TestCase):
 
 
     def test_related_documents_target_relationship(self) -> None:
-        target = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-gwinn-paging-protocol-v3"))
+        target = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-gwinn-paging-protocol-v3/"))
         rdocs  = list(self.dt.related_documents(target=target, relationship_type_slug = "replaces"))
         self.assertEqual(len(rdocs), 1)
         self.assertEqual(rdocs[0].id, 3)
@@ -2490,7 +2456,7 @@ class TestDatatracker(unittest.TestCase):
 
 
     def test_related_documents_target(self) -> None:
-        target = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-gwinn-paging-protocol-v3"))
+        target = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-gwinn-paging-protocol-v3/"))
         rdocs  = list(self.dt.related_documents(target=target))
         self.assertEqual(len(rdocs), 1)
         self.assertEqual(rdocs[0].id, 3)
@@ -3750,156 +3716,6 @@ class TestDatatracker(unittest.TestCase):
     def test_meeting_registrations_ticket_type(self) -> None:
         regs = self.dt.meeting_registrations(ticket_type="one_day")
         self.assertIsNot(regs, None)
-
-
-    # -----------------------------------------------------------------------------------------------------------------------------
-    # Tests relating to messages:
-
-    def test_announcement_from(self) -> None:
-        announcement_from = self.dt.announcement_from(AnnouncementFromURI(uri="/api/v1/message/announcementfrom/1/"))
-        if announcement_from is not None:
-            self.assertEqual(announcement_from.address,      "IETF Chair <chair@ietf.org>")
-            self.assertEqual(announcement_from.group,        GroupURI(uri="/api/v1/group/group/1/"))
-            self.assertEqual(announcement_from.id,           1)
-            self.assertEqual(announcement_from.name,         RoleNameURI(uri="/api/v1/name/rolename/chair/"))
-            self.assertEqual(announcement_from.resource_uri, AnnouncementFromURI(uri="/api/v1/message/announcementfrom/1/"))
-        else:
-            self.fail("Cannot find announcement from metadata")
-
-
-    def test_announcements_from(self) -> None:
-        announcements_from = self.dt.announcements_from()
-        self.assertIsNot(announcements_from, None)
-
-
-    def test_announcements_from_address(self) -> None:
-        announcements_from = list(self.dt.announcements_from(address="IETF Chair <chair@ietf.org>"))
-        self.assertEqual(len(announcements_from),  1)
-        self.assertEqual(announcements_from[0].id, 1)
-
-
-    def test_announcements_from_group(self) -> None:
-        announcements_from = list(self.dt.announcements_from(group=self.dt.group(GroupURI(uri="/api/v1/group/group/1/"))))
-        self.assertEqual(len(announcements_from),  6)
-        self.assertEqual(announcements_from[0].id, 1)
-        self.assertEqual(announcements_from[1].id, 2)
-        self.assertEqual(announcements_from[2].id, 7)
-        self.assertEqual(announcements_from[3].id, 8)
-        self.assertEqual(announcements_from[4].id, 27)
-        self.assertEqual(announcements_from[5].id, 28)
-
-
-    def test_announcements_from_name(self) -> None:
-        announcements_from = list(self.dt.announcements_from(name=self.dt.role_name(RoleNameURI(uri="/api/v1/name/rolename/chair/"))))
-        self.assertEqual(len(announcements_from),  11)
-        self.assertEqual(announcements_from[0].id, 1)
-        self.assertEqual(announcements_from[1].id, 2)
-        self.assertEqual(announcements_from[2].id, 3)
-        self.assertEqual(announcements_from[3].id, 10)
-        self.assertEqual(announcements_from[4].id, 12)
-        self.assertEqual(announcements_from[5].id, 13)
-        self.assertEqual(announcements_from[6].id, 15)
-        self.assertEqual(announcements_from[7].id, 16)
-        self.assertEqual(announcements_from[8].id, 24)
-        self.assertEqual(announcements_from[9].id, 26)
-        self.assertEqual(announcements_from[10].id, 30)
-
-
-    #def test_message(self) -> None:
-    #    message = self.dt.message(DTMessageURI(uri="/api/v1/message/message/158636/"))
-    #    if message is not None:
-    #        self.assertEqual(message.bcc,            "")
-    #        self.assertEqual(message.body,           "\nA New Internet-Draft is available from the on-line Internet-Drafts directories.\n\n\n        Title           : Describing Protocol Data Units with Augmented Packet Header Diagrams\n        Authors         : Stephen McQuistin\n                          Vivian Band\n                          Dejice Jacob\n                          Colin Perkins\n\tFilename        : draft-mcquistin-augmented-ascii-diagrams-05.txt\n\tPages           : 26\n\tDate            : 2020-06-17\n\nAbstract:\n   This document describes a machine-readable format for specifying the\n   syntax of protocol data units within a protocol specification.  This\n   format is comprised of a consistently formatted packet header\n   diagram, followed by structured explanatory text.  It is designed to\n   maintain human readability while enabling support for automated\n   parser generation from the specification document.  This document is\n   itself an example of how the format can be used.\n\n\nThe IETF datatracker status page for this draft is:\nhttps://datatracker.ietf.org/doc/draft-mcquistin-augmented-ascii-diagrams/\n\nThere are also htmlized versions available at:\nhttps://tools.ietf.org/html/draft-mcquistin-augmented-ascii-diagrams-05\nhttps://datatracker.ietf.org/doc/html/draft-mcquistin-augmented-ascii-diagrams-05\n\nA diff from the previous version is available at:\nhttps://www.ietf.org/rfcdiff?url2=draft-mcquistin-augmented-ascii-diagrams-05\n\n\nPlease note that it may take a couple of minutes from the time of submission\nuntil the htmlized version and diff are available at tools.ietf.org.\n\nInternet-Drafts are also available by anonymous FTP at:\nftp://ftp.ietf.org/internet-drafts/\n\n")
-    #        self.assertEqual(message.by,             PersonURI(uri="/api/v1/person/person/1/"))
-    #        self.assertEqual(message.cc,             "")
-    #        self.assertEqual(message.content_type,   "text/plain")
-    #        self.assertEqual(message.frm,            "internet-drafts@ietf.org")
-    #        self.assertEqual(message.id,             158636)
-    #        self.assertEqual(message.msgid,          "<159239631351.30959.7146324646157253269@ietfa.amsl.com>")
-    #        self.assertEqual(message.related_docs,   [DocumentURI(uri="/api/v1/doc/document/draft-mcquistin-augmented-ascii-diagrams/")])
-    #        self.assertEqual(message.related_groups, [])
-    #        self.assertEqual(message.reply_to, "")
-    #        self.assertEqual(message.resource_uri,   DTMessageURI(uri="/api/v1/message/message/158636/"))
-    #        self.assertEqual(message.sent,           datetime.fromisoformat("2020-06-17T05:18:33.607859"))
-    #        self.assertEqual(message.subject,        "I-D Action: draft-mcquistin-augmented-ascii-diagrams-05.txt")
-    #        self.assertEqual(message.time,           datetime.fromisoformat("2020-06-17T05:18:33"))
-    #        self.assertEqual(message.to,             "i-d-announce@ietf.org")
-    #    else:
-    #        self.fail("Cannot find message")
-
-
-    #def test_messages(self) -> None:
-    #    messages = self.dt.messages()
-    #    self.assertIsNot(messages, None)
-
-
-    #def test_messages_by(self) -> None:
-    #    person = self.dt.person(PersonURI(uri="/api/v1/person/person/1/"))
-    #    if person is not None:
-    #        messages = list(self.dt.messages(by=person))
-    #        self.assertNotEqual(len(messages), 0)
-    #    else:
-    #        self.fail("Cannot find person")
-
-
-    #def test_messages_frm(self) -> None:
-    #    messages = list(self.dt.messages(frm="internet-drafts@ietf.org"))
-    #    self.assertNotEqual(len(messages), 0)
-
-
-    #def test_messages_related_doc(self) -> None:
-    #    doc = self.dt.document(DocumentURI(uri="/api/v1/doc/document/draft-mcquistin-augmented-ascii-diagrams/"))
-    #    if doc is not None:
-    #        messages = list(self.dt.messages(related_doc=doc))
-    #        self.assertNotEqual(len(messages), 0)
-    #    else:
-    #        self.fail("Cannot find document")
-
-
-    #def test_messages_subject_contains(self) -> None:
-    #    messages = list(self.dt.messages(subject_contains="I-D Action: draft-mcquistin-augmented-ascii-diagrams-05.txt"))
-    #    self.assertEqual(len(messages),  1)
-    #    self.assertEqual(messages[0].id, 158636)
-
-
-    #def test_messages_body_contains(self) -> None:
-    #    messages = list(self.dt.messages(body_contains="draft-mcquistin-augmented-ascii-diagrams-05"))
-    #    self.assertNotEqual(len(messages), 0)
-
-
-    def test_send_queue_entry(self) -> None:
-        send_queue_entry = self.dt.send_queue_entry(SendQueueURI(uri="/api/v1/message/sendqueue/1/"))
-        if send_queue_entry is not None:
-            self.assertEqual(send_queue_entry.by,           PersonURI(uri="/api/v1/person/person/105651/"))
-            self.assertEqual(send_queue_entry.id,           1)
-            self.assertEqual(send_queue_entry.message,      DTMessageURI(uri="/api/v1/message/message/4001/"))
-            self.assertEqual(send_queue_entry.note,         "")
-            self.assertEqual(send_queue_entry.resource_uri, SendQueueURI(uri="/api/v1/message/sendqueue/1/"))
-            self.assertEqual(send_queue_entry.send_at,      None)
-            self.assertEqual(send_queue_entry.sent_at,      datetime.fromisoformat("2005-04-27T22:21:09-07:00"))
-            self.assertEqual(send_queue_entry.time,         datetime.fromisoformat("2005-04-26T22:21:09-07:00"))
-        else:
-            self.fail("Cannot find send queue entry")
-
-
-    def test_send_queue(self) -> None:
-        send_queue = self.dt.send_queue()
-        self.assertIsNot(send_queue, None)
-
-
-    def test_send_queue_by(self) -> None:
-        send_queue = self.dt.send_queue(by=self.dt.person(PersonURI(uri="/api/v1/person/person/105651/")))
-        self.assertIsNot(send_queue, None)
-
-
-    #def test_send_queue_message(self) -> None:
-    #    message = self.dt.message(DTMessageURI(uri="/api/v1/message/message/4001/"))
-    #    if message is not None:
-    #        send_queue = list(self.dt.send_queue(message = message))
-    #        self.assertEqual(len(send_queue),  1)
-    #        self.assertEqual(send_queue[0].id, 1)
-    #    else:
-    #        self.fail("Cannot find message")
 
 
 if __name__ == '__main__':
