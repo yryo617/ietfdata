@@ -224,10 +224,11 @@ class ParticipantsMatcher:
     _ignore    : list[str]
     _seen_addr : set[str]
     _seen_full : set[str]
-    _dt        : DataTrackerExt
+    _dt        : Optional[DataTrackerExt]
     
-    def __init__(self, old_path:optional[Path], ignore:optional[list[str]]):
-        if old_path.is_file():
+    def __init__(self, old_path:Optional[Path], ignore:Optional[list[str]]):
+        
+        if old_path is not None and old_path.is_file():
             _pdb = ParticipantDB(old_path)
         else:
             _pdb = ParticipantDB()
@@ -235,8 +236,8 @@ class ParticipantsMatcher:
             _ignore = ignore
         else:
             _ignore = []
-        _seen_addr = set()
-        _seen_full = set()
+        _seen_addr:set[str] = set()
+        _seen_full:set[str] = set()
         _dt = None
     
     def find_participants_ietf_datatracker(self):
@@ -262,12 +263,15 @@ class ParticipantsMatcher:
             if str(resource.name) == "/api/v1/name/extresourcename/orcid/":
                 self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "orcid", resource.value)
     
-    def find_participants_ietf_ml(self,ma_cache:optional[Path]):
+    def find_participants_ietf_ml(self,ma_cache:Optional[Path]=None):
+        ma = None
         if self._dt is None:
             self._dt = DataTrackerExt(cache_timeout = timedelta(days=7))
-        if ma_cache.is_file():
+        if ma_cache is not None and ma_cache.is_file():
             ma_cache_str = str(ma_cache)
-        ma   = MailArchive(sqlite_file=ma_cache_str)
+            ma   = MailArchive(sqlite_file=ma_cache_str)
+        else:
+            ma = MailArchive()
         
         # Add the mailing list addresses, and their -admin, -archive, and -request 
         # addresses, to the ignore list. These will never appear in the legitimate
