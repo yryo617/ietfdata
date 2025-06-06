@@ -219,7 +219,96 @@ class ParticipantDB:
                     self.idents[ident_type][ident_value] = to_person
                     print(f"    {ident_type} -> {ident_value}")
 
-
+class ParticipantsMatcher:
+    _pdb       : ParticipantDB
+    _ignore    : list[str]
+    _seen_addr : set[str]
+    _seen_full : set[str]
+    _dt        : DataTrackerExt
+    
+    def __init__(self, old_path:optional[Path], ignore:optional[list[str]]):
+        if old_path.is_file():
+            _pdb = ParticipantDB(old_path)
+        else:
+            _pdb = ParticipantDB()
+        if ignore is not None:
+            _ignore = ignore
+        else:
+            _ignore = []
+        _seen_addr = set()
+        _seen_full = set()
+        _dt = None
+    
+    def find_participants_ietf_datatracker(self):
+        # Add identifiers based on the IETF DataTracker:
+        if self._dt is None:
+            self._dt  = DataTrackerExt(cache_timeout = timedelta(days=7))
+        for msg in self._dt.emails():
+            if msg.address in ignore:
+                continue
+            self._pdb.person_with_identifier("email", msg.address)
+            self._pdb.identifies_same_person("email", msg.address, "dt_person_uri", str(msg.person))
+            self._seen_addr.add(msg.address)
+            # We don't need to add names here. The call to dt.person_by_name_email()
+            # below handles name matching.
+        
+        for resource in self._dt.person_ext_resources():
+            if str(resource.name) == "/api/v1/name/extresourcename/webpage/":
+                self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "webpage", resource.value)
+            if str(resource.name) == "/api/v1/name/extresourcename/github_username/":
+                self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "github_username", resource.value)
+            if str(resource.name) == "/api/v1/name/extresourcename/gitlab_username/":
+                self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "gitlab_username", resource.value)
+            if str(resource.name) == "/api/v1/name/extresourcename/orcid/":
+                self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "orcid", resource.value)
+    
+    def find_participants_ietf_ml(self,ma_cache:optional[Path]):
+        if self._dt is None:
+            self._dt = DataTrackerExt(cache_timeout = timedelta(days=7))
+        if ma_cache.is_file():
+            ma_cache_str = str(ma_cache)
+        ma   = MailArchive(sqlite_file=ma_cache_str)
+        
+        # Add the mailing list addresses, and their -admin, -archive, and -request 
+        # addresses, to the ignore list. These will never appear in the legitimate
+        # "From:" lines but are frequently used by spammers.
+        for n in ma.mailing_list_names():
+            ignore.append(f"{n}@ietf.org")
+            ignore.append(f"{n}-admin@ietf.org")
+            ignore.append(f"{n}-archive@ietf.org")
+            ignore.append(f"{n}-archive@lists.ietf.org")
+            ignore.append(f"{n}-archive@megatron.ietf.org")
+            ignore.append(f"{n}-request@ietf.org")
+        
+        for n in ma.mailing_list_names():
+            ml = ma.mailing_list(n)
+            print(f"*** ")
+            print(f"*** {ml.name()}")
+            print(f"*** ")
+            for envelope in ml.messages():
+                print(f"{ml.name()}/{envelope.uid()}")
+                for email_name, email_addr in email.utils.getaddresses(envelope.header("from")):
+                    email_full = f"{email_name} <{email_addr}>"
+                    if email_addr == "":
+                        continue
+                    if email_addr in ignore:
+                        continue
+                    if email_addr in self._seen_addr:
+                        # This address is already associated with a datatracker uri
+                        continue
+                    if email_name.endswith(" via RT") or email_name.endswith(" via Datatracker"):
+                        # Discard automated emails
+                        continue
+                    if email_full not in self._seen_full:
+                        self._pdb.person_with_identifier("email", email_addr)
+                        person = self._dt.person_from_name_email(email_name, email_addr)
+                        if person is not None and envelope.header("X-Spam-Flag") != "YES":
+                            self._pdb.identifies_same_person("email", email_addr, "dt_person_uri", str(person.resource_uri))
+                        self._seen_full.add(email_full)
+    
+    def dump(self,new_path:Path):
+        print(f"Saving: {new_path}")
+        self._pdb.save(new_path)
 
 if __name__ == "__main__":
     if len(sys.argv) == 2:
@@ -233,7 +322,7 @@ if __name__ == "__main__":
         print("   or: python3 -m ietfdata.tools.participants [old.json] [new.json]")
         sys.exit(1)
 
-    print(f"*** ietfdata.tools.participants")
+    print("*** ietfdata.tools.participants")
     if old_path is not None:
         print(f"Loading: {old_path}")
 
@@ -241,8 +330,6 @@ if __name__ == "__main__":
         print("")
         print("ERROR: refusing to overwrite input file")
         sys.exit(2)
-
-    pdb  = ParticipantDB(old_path)
 
     ignore = ["noreply@ietf.org",
               "noreply@github.com",
@@ -261,71 +348,10 @@ if __name__ == "__main__":
               "ctp_issues@danforsberg.info", # Seamoby CTP issue tracker
              ]
 
-    # Add identifiers based on the IETF DataTracker:
-    seen_addr = set()
-    dt  = DataTrackerExt(cache_timeout = timedelta(days=7))
-    for msg in dt.emails():
-        if msg.address in ignore:
-            continue
-        pdb.person_with_identifier("email", msg.address)
-        pdb.identifies_same_person("email", msg.address, "dt_person_uri", str(msg.person))
-        seen_addr.add(msg.address)
-        # We don't need to add names here. The call to dt.person_by_name_email()
-        # below handles name matching.
-
-
-    for resource in dt.person_ext_resources():
-        if str(resource.name) == "/api/v1/name/extresourcename/webpage/":
-            pdb.identifies_same_person("dt_person_uri", str(resource.person), "webpage", resource.value)
-        if str(resource.name) == "/api/v1/name/extresourcename/github_username/":
-            pdb.identifies_same_person("dt_person_uri", str(resource.person), "github_username", resource.value)
-        if str(resource.name) == "/api/v1/name/extresourcename/gitlab_username/":
-            pdb.identifies_same_person("dt_person_uri", str(resource.person), "gitlab_username", resource.value)
-        if str(resource.name) == "/api/v1/name/extresourcename/orcid/":
-            pdb.identifies_same_person("dt_person_uri", str(resource.person), "orcid", resource.value)
-
-    # Add identifiers based on the IETF mailing list archive:
-    seen_full = set()
-    ma   = MailArchive()
-
-    # Add the mailing list addresses, and their -admin, -archive, and -request 
-    # addresses, to the ignore list. These will never appear in the legitimate
-    # "From:" lines but are frequently used by spammers.
-    for n in ma.mailing_list_names():
-        ignore.append(f"{n}@ietf.org")
-        ignore.append(f"{n}-admin@ietf.org")
-        ignore.append(f"{n}-archive@ietf.org")
-        ignore.append(f"{n}-archive@lists.ietf.org")
-        ignore.append(f"{n}-archive@megatron.ietf.org")
-        ignore.append(f"{n}-request@ietf.org")
-
-    for n in ma.mailing_list_names():
-        ml = ma.mailing_list(n)
-        print(f"*** ")
-        print(f"*** {ml.name()}")
-        print(f"*** ")
-        for envelope in ml.messages():
-            print(f"{ml.name()}/{envelope.uid()}")
-            for email_name, email_addr in email.utils.getaddresses(envelope.header("from")):
-                email_full = f"{email_name} <{email_addr}>"
-                if email_addr == "":
-                    continue
-                if email_addr in ignore:
-                    continue
-                if email_addr in seen_addr:
-                    # This address is already associated with a datatracker uri
-                    continue
-                if email_name.endswith(" via RT") or email_name.endswith(" via Datatracker"):
-                    # Discard automated emails
-                    continue
-                if email_full not in seen_full:
-                    pdb.person_with_identifier("email", email_addr)
-                    person = dt.person_from_name_email(email_name, email_addr)
-                    if person is not None and envelope.header("X-Spam-Flag") != "YES":
-                        pdb.identifies_same_person("email", email_addr, "dt_person_uri", str(person.resource_uri))
-                    seen_full.add(email_full)
-
-    print(f"Saving: {new_path}")
-    pdb.save(new_path)
+    pm = ParticipantsMatcher(old_path=old_path, ignore=ignore)
+    pm.find_participants_ietf_datatracker()
+    pm.find_participants_ietf_ml()
+    
+    pm.dump(new_path)
 
 
