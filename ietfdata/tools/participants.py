@@ -33,7 +33,7 @@ from typing      import List, Dict, Optional, Iterator
 
 from ietfdata.datatracker     import *
 from ietfdata.datatracker_ext import *
-from ietfdata.mailarchive2    import *
+from ietfdata.mailarchive3    import *
 
 class Participant:
     person_id   : Optional[str]
