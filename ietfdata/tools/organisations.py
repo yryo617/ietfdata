@@ -222,9 +222,18 @@ class OrganisationDB:
 # =============================================================================
 # Helper functions for extracting organisations from the datatracker:
 
+
+def _clean_up_invisibles(name:str):
+    # cleans up invisible chars and multi-spaces
+    invisibles = ["\n","\t"]
+    for inv in invisibles:
+        name = name.replace(inv," ")
+    ' '.join(name.split()) # clear multi-spaces
+    return name
+
 def record_affiliation(orgs: OrganisationDB, name:str, email:str) -> Optional[Tuple[str,str]]:
     # Clean-up malformed organisation names:
-    name = name.replace("\n", " ")
+    name = _clean_up_invisibles(name) 
 
     # Record the organisation
     orgs.organisation_exists(name)
