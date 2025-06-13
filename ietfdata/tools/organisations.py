@@ -223,13 +223,41 @@ class OrganisationDB:
 # Helper functions for extracting organisations from the datatracker:
 
 
-def _clean_up_invisibles(name:str):
+def _clean_up_invisibles(name:str)->str:
     # cleans up invisible chars and multi-spaces
     invisibles = ["\n","\t"]
     for inv in invisibles:
         name = name.replace(inv," ")
     ' '.join(name.split()) # clear multi-spaces
     return name
+
+def _record_match_suffix(orgs:OrganisationDB, name:str)->None:
+    # If the organisation name ends in a known company suffix, also record
+    # the variant without the suffix and mark them as matching:
+    punct = [",","."]
+    tmp_name = name
+    tmp_name = tmp_name.replace(punct," ")
+    ' '.join(tmp_name.split()) #clear multi-space
+    for suffix in ["Ltd", "Inc", "Pty", "GmbH","LLC","Limited","Corp","Technologies","AG","Co Ltd"]:
+        for variant in [f", {suffix}.", f", {suffix}", f" {suffix}.", f" {suffix}"]: 
+            if tmp_name.lower().endswith(variant.lower()):
+                bare_name = tmp_name[:-len(variant)]
+                bare_name = bare_name.strip() #remove any extra spaces
+                orgs.organisation_exists(bare_name)
+                orgs.organisations_match(bare_name, name)
+                break
+
+def _record_match_abbrev(orgs:OrganisationDB, name:str)->None:
+    # If the organisation name ends in a known abbreviation, also record
+    # the variant with the full name and mark them as matching:
+    for abbr, full in [("Corp", "Corporation"),
+                       ("Univ", "University")]:
+        for variant in [f", {abbr}.", f", {abbr}", f" {abbr}.", f" {abbr}"]: 
+            if name.lower().endswith(variant.lower()):
+                full_name = f"{name[:-len(variant)]} {full}"
+                orgs.organisation_exists(full_name)
+                orgs.organisations_match(name, full_name)
+                break
 
 def record_affiliation(orgs: OrganisationDB, name:str, email:str) -> Optional[Tuple[str,str]]:
     # Clean-up malformed organisation names:
@@ -240,14 +268,8 @@ def record_affiliation(orgs: OrganisationDB, name:str, email:str) -> Optional[Tu
 
     # If the organisation name ends in a known company suffix, also record
     # the variant without the suffix and mark them as matching:
-    for suffix in ["Ltd", "Inc", "Pty", "GmbH"]:
-        for variant in [f", {suffix}.", f", {suffix}", f" {suffix}.", f" {suffix}"]: 
-            if name.endswith(variant):
-                bare_name = name[:-len(variant)]
-                orgs.organisation_exists(bare_name)
-                orgs.organisations_match(bare_name, name)
-                break
-
+    _record_match_suffix(orgs,name)
+    
     # If the organisation name ends in a known abbreviation, also record
     # the variant with the full name and mark them as matching:
     for abbr, full in [("Corp", "Corporation"),
