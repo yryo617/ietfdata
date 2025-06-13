@@ -312,12 +312,12 @@ class ParticipantsMatcher:
         self._pdb.save(new_path)
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3:
+    if len(sys.argv) == 4:
         dt_sqlite_file = sys.argv[1]
         ml_sqlite_file = sys.argv[2]
         old_path    = None
         new_path    = Path(sys.argv[3])
-    elif len(sys.argv) == 4:
+    elif len(sys.argv) == 5:
         dt_sqlite_file = sys.argv[1]
         ml_sqlite_file = sys.argv[2]
         old_path    = Path(sys.argv[3])
