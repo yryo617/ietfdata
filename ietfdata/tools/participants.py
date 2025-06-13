@@ -224,30 +224,25 @@ class ParticipantsMatcher:
     _ignore    : list[str]
     _seen_addr : set[str]
     _seen_full : set[str]
-    _dt        : Optional[DataTrackerExt]
+    _dt        : DataTrackerExt
     
-    def __init__(self, old_path:Optional[Path], ignore:Optional[list[str]]):
+    def __init__(self, old_path:Optional[Path], sqlite_file:str, ignore:list[str]=[])->None:
         
         if old_path is not None and old_path.is_file():
-            _pdb = ParticipantDB(old_path)
+            self._pdb = ParticipantDB(old_path)
         else:
-            _pdb = ParticipantDB()
-        if ignore is not None:
-            _ignore = ignore
+            self._pdb = ParticipantDB()
+        if ignore != []:
+            self._ignore = ignore
         else:
-            _ignore = []
-        _seen_addr:set[str] = set()
-        _seen_full:set[str] = set()
-        _dt = None
-    
-    def _init_datatracker(self,sqlite_file:str):
+            self._ignore = []
+        self._seen_addr:set[str] = set()
+        self._seen_full:set[str] = set()
         self._dt  = DataTrackerExt(DTBackendArchive(sqlite_file=sqlite_file))
+    
         
-    def find_participants_ietf_datatracker(self,sqlite_file:str):
+    def find_participants_ietf_datatracker(self):
         # Add identifiers based on the IETF DataTracker:
-        if self._dt is None:
-            self._init_datatracker(sqlite_file)
-        assert(self._dt is not None)
         for msg in self._dt.emails():
             if msg.address in ignore:
                 continue
@@ -258,20 +253,17 @@ class ParticipantsMatcher:
             # below handles name matching.
         
         for resource in self._dt.person_ext_resources():
-            if str(resource.name) == "/api/v1/name/extresourcename/webpage/":
-                self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "webpage", resource.value)
-            if str(resource.name) == "/api/v1/name/extresourcename/github_username/":
-                self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "github_username", resource.value)
-            if str(resource.name) == "/api/v1/name/extresourcename/gitlab_username/":
-                self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "gitlab_username", resource.value)
-            if str(resource.name) == "/api/v1/name/extresourcename/orcid/":
-                self._pdb.identifies_same_person("dt_person_uri", str(resource.person), "orcid", resource.value)
+            ext_res_name = self._dt.ext_resource_name(resource.name)
+            if ext_res_name is None:
+                continue
+            slug = ext_res_name.slug
+            if slug!="webpage" and slug!="gihub_username" and slug!="gitlab_username" and slug!="orcid":
+                continue
+            self._pdb.identifies_same_person("dt_person_uri", str(resource.resource_uri), slug, resource.value)
+                
     
     def find_participants_ietf_ml(self,sqlite_file:str,ma_cache:Optional[Path]=None):
         ma = None
-        if self._dt is None:
-            self._init_datatracker(sqlite_file)
-        assert(self._dt is not None)
         if ma_cache is not None and ma_cache.is_file():
             ma_cache_str = str(ma_cache)
             ma   = MailArchive(sqlite_file=ma_cache_str)
@@ -320,20 +312,23 @@ class ParticipantsMatcher:
         self._pdb.save(new_path)
 
 if __name__ == "__main__":
-    if len(sys.argv) == 2:
-        sqlite_file = sys.argv[1]
+    if len(sys.argv) == 3:
+        dt_sqlite_file = sys.argv[1]
+        ml_sqlite_file = sys.argv[2]
         old_path    = None
-        new_path    = Path(sys.argv[2])
-    elif len(sys.argv) == 3:
-        sqlite_file = sys.argv[1]
-        old_path    = Path(sys.argv[2])
         new_path    = Path(sys.argv[3])
+    elif len(sys.argv) == 4:
+        dt_sqlite_file = sys.argv[1]
+        ml_sqlite_file = sys.argv[2]
+        old_path    = Path(sys.argv[3])
+        new_path    = Path(sys.argv[4])
     else:
-        print("Usage: python3 -m ietfdata.tools.participants <ietfdata.sqlite> <new.json>")
-        print("   or: python3 -m ietfdata.tools.participants <ietfdata.sqlite> <old.json> <new.json>")
+        print("Usage: python3 -m ietfdata.tools.participants <dt_ietfdata.sqlite> <ml_ietfdata.sqlite> <new.json>")
+        print("   or: python3 -m ietfdata.tools.participants <dt_ietfdata.sqlite> <ml_ietfdata.sqlite> <old.json> <new.json>")
         sys.exit(1)
     print("*** ietfdata.tools.participants")
-    print(f"Using SQLite DB file:{sqlite_file}")
+    print(f"Using SQLite DataTracker DB file:{dt_sqlite_file}")
+    print(f"Using SQLite MailArchive DB file: {ml_sqlite_file}")
     if old_path is not None:
         print(f"Loading: {old_path}")
 
@@ -359,9 +354,9 @@ if __name__ == "__main__":
               "ctp_issues@danforsberg.info", # Seamoby CTP issue tracker
              ]
 
-    pm = ParticipantsMatcher(old_path=old_path, ignore=ignore)
-    pm.find_participants_ietf_datatracker(sqlite_file)
-    pm.find_participants_ietf_ml(sqlite_file)
+    pm = ParticipantsMatcher(old_path=old_path, sqlite_file = dt_sqlite_file, ignore=ignore)
+    pm.find_participants_ietf_datatracker()
+    pm.find_participants_ietf_ml(ml_sqlite_file)
     
     pm.dump(new_path)
 
