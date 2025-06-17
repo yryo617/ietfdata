@@ -243,6 +243,7 @@ class ParticipantsMatcher:
         
     def find_participants_ietf_datatracker(self):
         # Add identifiers based on the IETF DataTracker:
+        print("** Finding participants from IETF DataTracker")
         for msg in self._dt.emails():
             if msg.address in ignore:
                 continue
@@ -263,6 +264,7 @@ class ParticipantsMatcher:
                 
     
     def find_participants_ietf_ml(self,sqlite_file:str,ma_cache:Optional[Path]=None):
+        print(f"** Finding participants from IETF-ML with SQLife file: {sqlite_file}")
         ma = None
         if ma_cache is not None and ma_cache.is_file():
             ma_cache_str = str(ma_cache)
