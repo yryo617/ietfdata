@@ -354,12 +354,12 @@ class EmailPolicyCustom(EmailPolicy):
         value = value.rstrip('\r\n')
 
         if name.lower() == "to" or name.lower() == "cc":
+            # Many messages sent to ietf-announce have malformed "To:" and "Cc:" headers,
+            # some of which are so corrupt that they make the Python email package throw
+            # an exception ('Group' object has no attribute 'local_part').  Rewrite such
+            # headers to use the canonical ietf-announce@ietf.org list address.
             value = value.replace("\r\n", "")
             patterns_to_replace = [
-                # Many messages sent to ietf-announce have malformed "To:" and "Cc:" headers,
-                # some of which are so corrupt that they make the Python email package throw
-                # an exception ('Group' object has no attribute 'local_part').  Rewrite such
-                # headers to use the canonical ietf-announce@ietf.org list address.
                 (r'("IETF-Announce:; ; ; ; ; @tis.com"@tis.com[; ]+ , )(.*)', r'ietf-announce@ietf.org, \2'),
                 (r'(.*)(IETF-Announce:[ ;,]+[a-zA-Z\.@:;-]+$)', r'\1ietf-announce@ietf.org'),
                 (r'(.*)(IETF-Announce:(; )+[; a-z\.@\r\n]+)',   r'\1ietf-announce@ietf.org'),
@@ -397,11 +397,61 @@ class EmailPolicyCustom(EmailPolicy):
                 (r'(RFC 3023 authors: ;)',                                 r'mmurata@trl.ibm.co.jp, simonstl@simonstl.com, dan@dankohn.com'),
                 (r'=\?ISO-8859-1\?B\?QWJhcmJhbmVsLA0KICAgIEJlbmphbWlu\?=', r'Benjamin Abarbanel'),
                 (r'=\?ISO-8859-15\?B\?UGV0ZXJzb24sDQogICAgSm9u\?=',        r'Jon Peterson'),
+                (r'=?gb2312?q?=D1=F9_<1@21cn.com>?=',                      r'1@21cn.com'),
             ]
             for (pattern, replacement) in patterns_to_replace:
                 new_value = re.sub(pattern, replacement, value)
+                new_value = new_value.rstrip(",")
                 if new_value != value:
-                    # print(f"header_reader: [{value}] -> [{new_value}]")
+                    try:
+                        print(f"header_source_parse: rewrite {name}: [{value}] -> [{new_value}]")
+                    except:
+                        print(f"header_source_parse: rewrite {name}: (?unprintable?) -> [{new_value}]")
+                    value = new_value
+                    break
+
+        if name.lower() == "from":
+            # There are also some messages with unparsable "From:" headers that need to
+            # be written into something that Python can handle:
+            value = value.replace("\r\n", "")
+            patterns_to_replace = [
+                (r'(.*)(<1@21cn.com>(..))',                                            r'\1?= \2'),
+                (r'(.)(Stock Survey )(<info@internetstocksurvey.freeserve.co.uk>)(.)', r'\2\3'),
+                (r'(.D. J. Bernstein.)(.*)(@cr.yp.to>)',                               r'\1 <djb@cr.yp.to>'),
+                (r'(.*)(kisroom@yahoo.co.kr)(.*)',                                     r'<kisroom@yahoo.co.kr>'),
+                (r'(.*)(<phj234@yahoo.co.kr>)(.*)',                                    r'<phj234@yahoo.co.kr>'),
+                (r'(........<)(.*)(@yahoo.co.kr>)',                                    r'unkown@yahoo.co.kr'),
+                (r'(.*)(<gp@postmaster.com>)(.*)',                                     r'\2'),
+                (r'(.*)(money@sina.com)',                                              r'\2'),
+                (r'M.I Marshall . Ilsley Bank.*',                                      r'<MIBankAlerts.040105.126597740@mibank.com>'),
+                (r'LaSalle Bank.*security@lasallebank.com .LaSalle Bank.',             r'LaSalle Bank <security@lasallebank.com>'),
+                (r'.*@kizonline.com',                                                  r'unknown@kizonline.com'),
+                (r'(.*)(sss@sss.com>)(.*)',                                            r'<sss@sss.com>'),
+                (r'(.*)(PayPal@yahoo.com)(.*)',                                        r'<PayPal@yahoo.com>'),
+                (r'(.*)(shenzhenlzh@126.com)',                                         r'\2'),
+                (r'(.*)(<zzyo04.0.0..00@126.com>)',                                    r'<zzyo04.0.0.00@126.com>'),
+                (r'(.*)(asssss0)(.*)(sss@126.com)(.*)',                                r'<\2\4>'),
+                (r'(")(Derek Atkins <derek@ihtfp.com>)(" <derek@MIT.EDU>)',            r'\2'),
+                (r'(.*)(<info@gooh.net>)(.*)',                                         r'\2'),
+                (r'(.*)(<alissaana@yahoo.com>)(.*)',                                   r'\2'),
+                (r'(.*)(<evinces@fatroop.eu>)(.*)',                                    r'\2'),
+                (r'.SENATE HOUSE. <..com.@truemail.co.th>',                            r'<mrslindahill789@yahoo.it>'),
+                (r'(Protect Your Children)(.*)(Kids Live Safe)(.*)(<americanised@wretchedness.red>)', r'\1 \3 \5'),
+                (r'(.*)(\.nospam at gmail.com)',                                       r'\1@gmail.com'),
+                (r'(.*) at (.*) on behalf of (.*)',                                    r'\3 <\1@\2>'),
+                (r'(.*)(<giftcards0721@amzdl1322.us>)(.*)',                            r'\2'),
+                (r'(.*)(<[A-Za-z]+)(\.\.)([A-Za-z]+)(@.*>)',                           r'\1\2.\4\5'),
+                (r'([A-Za-z ]+)("?)( <[A-Za-z0-9-]+@[^ ]+)( .*)',                      r'\1\3'),
+            ]
+            #    (r'(.*)(spencer@mcsr-labs.org)(.*)',                                   r'Spencer Dawkins <\2>'),
+            for (pattern, replacement) in patterns_to_replace:
+                new_value = re.sub(pattern, replacement, value)
+                new_value = new_value.rstrip(",")
+                if new_value != value:
+                    try:
+                        print(f"header_source_parse: rewrite {name}: [{value}] -> [{new_value}]")
+                    except:
+                        print(f"header_source_parse: rewrite {name}: (?unprintable?) -> [{new_value}]")
                     value = new_value
                     break
 
@@ -409,7 +459,7 @@ class EmailPolicyCustom(EmailPolicy):
 
 
 
-def _parse_hdr_from(uid, msg):
+def _parse_header_from(uid, msg):
     """
     This is a private helper function - do not use.
     """
@@ -431,7 +481,7 @@ def _parse_hdr_from(uid, msg):
                     # Rewrite, e.g., "lear at cisco.com" -> "lear@cisco.com"
                     from_addr = from_addr.replace(" at ", "@")
                 else:
-                    print(f"failed: _parse_hdr_from - no @ in 'From:' header (uid: {uid}) {hdr}")
+                    print(f"failed: _parse_header_from - no @ in 'From:' header (uid: {uid}) {hdr}")
                     from_addr = None
             if from_addr is not None and from_addr.count("@") == 2:
                 # The parsed messages contain a small number of mangled addresses with multiple @ signs; rewrite them:
@@ -451,7 +501,7 @@ def _parse_hdr_from(uid, msg):
                 for orig, repl in replacements:
                     if from_addr == orig:
                         from_addr = repl
-                        print(f"_parse_hdr_from: {orig} -> {repl}")
+                        print(f"_parse_header_from: rewrite From: [{orig}] -> [{repl}]")
         elif len(addr_list) > 1:
             # The "From:" header contains multiple addresses; use the first one with a valid domain:
             from_name = None
@@ -466,7 +516,7 @@ def _parse_hdr_from(uid, msg):
                         break
                 else:
                     raise RuntimeError(f"Cannot parse \"From:\" header: uid={uid} - multiple addresses in group")
-            # print(f"parse_hdr_from: ({uid}) multiple addresses [{hdr}] -> [{from_name}],[{from_addr}]")
+            # print(f"parse_header_from: ({uid}) multiple addresses [{hdr}] -> [{from_name}],[{from_addr}]")
         else:
             raise RuntimeError(f"Cannot parse \"From:\" header: uid={uid} cannot happen")
             sys.exit(1)
@@ -480,7 +530,7 @@ def _parse_hdr_from(uid, msg):
         return (from_name, from_addr)
 
 
-def _parse_hdr_to_cc(uid, msg, to_cc):
+def _parse_header_to_cc(uid, msg, to_cc):
     """
     This is a private helper function - do not use.
     """
@@ -497,15 +547,15 @@ def _parse_hdr_to_cc(uid, msg, to_cc):
                     index += 1
                 return headers
             except:
-                print(f"failed: _parse_hdr_to_cc (uid: {uid}) {hdr}")
+                print(f"failed: _parse_header_to_cc (uid: {uid}) {hdr}")
                 return []
     except Exception as e: 
-        print(f"failed: _parse_hdr_to_cc (uid: {uid}) cannot extract {to_cc} header")
+        print(f"failed: _parse_header_to_cc (uid: {uid}) cannot extract {to_cc} header")
         print(f"  {e}")
         return []
 
 
-def _parse_hdr_subject(uid, msg):
+def _parse_header_subject(uid, msg):
     """
     This is a private helper function - do not use.
     """
@@ -516,7 +566,7 @@ def _parse_hdr_subject(uid, msg):
         return hdr.strip()
 
 
-def _parse_hdr_date(uid, msg):
+def _parse_header_date(uid, msg):
     """
     This is a private helper function - do not use.
     """
@@ -528,7 +578,7 @@ def _parse_hdr_date(uid, msg):
         # Standard date format:
         temp = parsedate_to_datetime(hdr)
         date = temp.astimezone(UTC).isoformat()
-        # print(f"parse_hdr_date: okay (0): {date} | {hdr}")
+        # print(f"_parse_header_date: okay (0): {date} | {hdr}")
         return date
     except:
         try:
@@ -538,28 +588,28 @@ def _parse_hdr_date(uid, msg):
             split.append("+0000")
             joined = " ".join(split)
             date = parsedate_to_datetime(joined).astimezone(UTC).isoformat()
-            # print(f"parse_hdr_date: okay (1): {date} | {hdr}")
+            # print(f"_parse_header_date: okay (1): {date} | {hdr}")
             return date
         except:
             try:
                 # Non-standard date format: 04-Jan-93 13:22:13 (assume UTC timezone)
                 temp = datetime.strptime(hdr, "%d-%b-%y %H:%M:%S")
                 date = temp.astimezone(UTC).isoformat()
-                # print(f"parse_hdr_date: okay (2): {date} | {hdr}")
+                # print(f"_parse_header_date: okay (2): {date} | {hdr}")
                 return date
             except:
                 try:
                     # Non-standard date format: 30-Nov-93 17:23 (assume UTC timezone)
                     temp = datetime.strptime(hdr, "%d-%b-%y %H:%M")
                     date = temp.astimezone(UTC).isoformat()
-                    # print(f"parse_hdr_date: okay (3): {date} | {hdr}")
+                    # print(f"_parse_header_date: okay (3): {date} | {hdr}")
                     return date
                 except:
                     try:
                         # Non-standard date format: 2006-07-29 00:55:01 (assume UTC timezone)
                         temp = datetime.strptime(hdr, "%Y-%m-%d %H:%M:%S")
                         date = temp.astimezone(UTC).isoformat()
-                        # print(f"parse_hdr_date: okay (4): {date} | {hdr}")
+                        # print(f"_parse_header_date: okay (4): {date} | {hdr}")
                         return date
                     except:
                         try:
@@ -567,15 +617,15 @@ def _parse_hdr_date(uid, msg):
                             tmp1 = hdr.replace(": ", ":0").replace("  ", " 0")
                             tmp2 = parsedate_to_datetime(tmp1)
                             date = tmp2.astimezone(UTC).isoformat()
-                            # print(f"parse_hdr_date: okay (5): {date} | {hdr}")
+                            # print(f"_parse_header_date: okay (5): {date} | {hdr}")
                             return date
 
                         except:
-                            print(f"failed: _parse_hdr_date (uid: {uid}) {hdr}")
+                            print(f"_parse_header_date: invalid Date: {hdr} (uid: {uid})")
                             return None
 
 
-def _parse_hdr_message_id(uid, msg):
+def _parse_header_message_id(uid, msg):
     """
     This is a private helper function - do not use.
     """
@@ -586,7 +636,7 @@ def _parse_hdr_message_id(uid, msg):
         return hdr.strip()
 
 
-def _parse_hdr_in_reply_to(uid, msg):
+def _parse_header_in_reply_to(uid, msg):
     """
     This is a private helper function - do not use.
     """
@@ -607,18 +657,18 @@ def _parse_message(uid, raw):
 
     msg = BytesHeaderParser(policy=parsing_policy).parsebytes(raw)
 
-    from_name, from_addr = _parse_hdr_from(uid, msg)
+    from_name, from_addr = _parse_header_from(uid, msg)
 
     res = {
             "uid"         : uid,
             "from_name"   : from_name,
             "from_addr"   : from_addr,
-            "to"          : _parse_hdr_to_cc(uid, msg, "to"),
-            "cc"          : _parse_hdr_to_cc(uid, msg, "cc"),
-            "subject"     : _parse_hdr_subject(uid, msg),
-            "date"        : _parse_hdr_date(uid, msg),
-            "message_id"  : _parse_hdr_message_id(uid, msg),
-            "in_reply_to" : _parse_hdr_in_reply_to(uid, msg),
+            "to"          : _parse_header_to_cc(uid, msg, "to"),
+            "cc"          : _parse_header_to_cc(uid, msg, "cc"),
+            "subject"     : _parse_header_subject(uid, msg),
+            "date"        : _parse_header_date(uid, msg),
+            "message_id"  : _parse_header_message_id(uid, msg),
+            "in_reply_to" : _parse_header_in_reply_to(uid, msg),
             "raw_data"    : raw
           }
 
