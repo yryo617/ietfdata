@@ -328,7 +328,7 @@ if __name__ == "__main__":
         sys.exit(1)
     print("*** ietfdata.tools.participants")
     print(f"Using SQLite DataTracker DB file:{dt_sqlite_file}")
-    print(f"Using SQLite MailArchive DB file: {ml_sqlite_file}")
+    print(f"Using SQLite MailArchive DB file:{ml_sqlite_file}")
     if old_path is not None:
         print(f"Loading: {old_path}")
 
