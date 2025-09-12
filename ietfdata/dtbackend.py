@@ -365,6 +365,9 @@ class DTBackendArchive(DTBackend):
                                 column_type TEXT,
                                 FOREIGN KEY (endpoint) REFERENCES ietf_dt_schema (endpoint));""")
 
+        self._db.execute("""CREATE INDEX IF NOT EXISTS index_ietf_dt_schema ON ietf_dt_schema (endpoint)""")
+        self._db.execute("""CREATE INDEX IF NOT EXISTS index_ietf_dt_schema_columns ON ietf_dt_schema_columns (endpoint)""")
+
         for endpoint in endpoints:
             dbc = self._db.cursor()
             dbc.execute("SELECT COUNT(endpoint) FROM ietf_dt_schema WHERE endpoint = ?;", (endpoint, ))
@@ -595,8 +598,7 @@ class DTBackendArchive(DTBackend):
         assert obj_uri.params == {}
 
         # Find the endpoint to fetch:
-        split = obj_uri.uri.rfind("/", 0, -1) + 1
-        endpoint = obj_uri.uri[:split]
+        endpoint = f"{"/".join(obj_uri.uri.split("/")[:5])}/"
 
         self._log.debug(f"datatracker_get_single: {endpoint}")
 
@@ -604,7 +606,11 @@ class DTBackendArchive(DTBackend):
         dbc = self._db.cursor()
         sql = "SELECT table_name FROM ietf_dt_schema WHERE endpoint = ?;"
         val = (endpoint, )
-        table_name = dbc.execute(sql, val).fetchone()[0]
+        res = dbc.execute(sql, val).fetchone()
+        if res is None:
+            self._log.warn(f"datatracket_get_single: cannot find database table for {endpoint}")
+            return None
+        table_name = res[0]
 
         # Find the colums to extract and whether single or to_many
         columns = []
@@ -624,17 +630,25 @@ class DTBackendArchive(DTBackend):
         sql    = f"SELECT "
         sql   += ", ".join(map(lambda x : f"\"{x}\"", columns))
         sql   += f" FROM {table_name} WHERE resource_uri = ?;"
+        #qplan = dbc.execute("EXPLAIN QUERY PLAN " + sql, (obj_uri.uri, )).fetchone()
+        #print(qplan)
         res1   = dbc.execute(sql, (obj_uri.uri, )).fetchone()
         if res1 is None:
-            self._log.warn(f"datatracker_get_single: cannot find {obj_uri.uri} in database")
+            self._log.debug(f"datatracker_get_single: cannot find {obj_uri.uri} in database")
             return None
         for column_name, column_val in zip(columns, res1):
             result[column_name] = column_val
 
         # Reconstruct to_many fields in JSON
         for column in to_many:
+            # Ensure an appropriate index exists before executing the query
+            index_sql = f"CREATE INDEX IF NOT EXISTS index_{table_name}_{column} ON {table_name}_{column} (_parent)"
+            self._db.execute(index_sql)
+
             result[column] = []
             sql = f"SELECT {column} FROM {table_name}_{column} WHERE _parent = ?;"
+            #qplan = dbc.execute("EXPLAIN QUERY PLAN " + sql, (obj_uri.uri, )).fetchone()
+            #print(qplan)
             for res2 in dbc.execute(sql, (obj_uri.uri, )).fetchall():
                 result[column].append(res2[0])
 
@@ -648,15 +662,13 @@ class DTBackendArchive(DTBackend):
         # Find the endpoint from which to fetch items:
         endpoint = obj_uri.uri
 
-        self._log.debug(f"_datatracker_get_multi: {endpoint}")
+        self._log.debug(f"_datatracker_get_multi: {obj_uri} order_by={order_by}")
 
         # Find the table from which they will be fetched:
         dbc = self._db.cursor()
         sql = "SELECT table_name FROM ietf_dt_schema WHERE endpoint = ?;"
         val = (endpoint, )
         table_name = dbc.execute(sql, val).fetchone()[0]
-
-        # FIXME: This should built an appropriate index on the table if one does not exist
 
         # Find the colums to extract and whether they are single or to_many:
         columns = []
@@ -675,30 +687,39 @@ class DTBackendArchive(DTBackend):
         sql  = f"SELECT "
         sql += ", ".join(map(lambda x : f"\"{x}\"", columns + to_one))
         sql += f" FROM {table_name}"
+        index_names  = []
         param_names  = []
         param_values = []
         if len(obj_uri.params) > 0:
             sql += f" WHERE "
             for param_name, param_value in obj_uri.params.items():
                 if param_name in columns:
+                    index_names.append(f"\"{param_name}\"")
                     param_names.append(f"\"{param_name}\" = ?")
                     param_values.append(param_value)
                 elif param_name.endswith("__contains") and param_name[:-10] in columns:
+                    index_names.append(f"\"{param_name[:-10]}\"")
                     param_names.append(f"\"{param_name[:-10]}\" LIKE ?")
                     param_values.append(f"%{param_value}%")
                 elif param_name.endswith("__gt") and param_name[:-4] in columns:
+                    index_names.append(f"\"{param_name[:-4]}\"")
                     param_names.append(f"\"{param_name[:-4]}\" > ?")
                     param_values.append(param_value)
                 elif param_name.endswith("__gte") and param_name[:-5] in columns:
+                    index_names.append(f"\"{param_name[:-5]}\"")
                     param_names.append(f"\"{param_name[:-5]}\" >= ?")
                     param_values.append(param_value)
                 elif param_name.endswith("__lt") and param_name[:-4] in columns:
+                    index_names.append(f"\"{param_name[:-4]}\"")
                     param_names.append(f"\"{param_name[:-4]}\" < ?")
                     param_values.append(param_value)
                 elif param_name.endswith("__lte") and param_name[:-5] in columns:
+                    index_names.append(f"\"{param_name[:-5]}\"")
                     param_names.append(f"\"{param_name[:-5]}\" <= ?")
                     param_values.append(param_value)
                 elif param_name in to_one:
+                    # FIXME: the use of LIKE forces sqlite to scan rather than use the index
+                    index_names.append(f"\"{param_name}\"")
                     param_names.append(f"\"{param_name}\" LIKE ?")
                     # Several datatracker API endpoints allow querying documents, but
                     # take a document ID rather than a document name as their parameter.
@@ -715,6 +736,17 @@ class DTBackendArchive(DTBackend):
                     raise RuntimeError(f"Parameter references unknown column: {param_name}")
             sql += " AND ".join(param_names)
         sql += ";"
+
+        # Ensure an appropriate index exists before executing the query
+        if len(index_names) > 0:
+            index_sql = f"CREATE INDEX IF NOT EXISTS index_{table_name} ON {table_name} ({", ".join(index_names)});"
+            self._log.debug(index_sql)
+            self._db.execute(index_sql)
+
+        #print(sql)
+        #print(param_values)
+        #qplan = dbc.execute("EXPLAIN QUERY PLAN " + sql, param_values).fetchone()
+        #print(qplan)
 
         # Reconstruct the JSON object
         for items in dbc.execute(sql, param_values).fetchall():

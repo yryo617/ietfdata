@@ -2,12 +2,13 @@ import sys
 import csv
 import json 
 import copy
+import logging
+import textwrap
 
 from datetime import timedelta,date
 from typing import Optional
 from ietfdata.datatracker     import *
 from ietfdata.datatracker_ext import *
-from ietfdata.mailarchive2    import *
 
 # TODO: tests
 # A class representing an affiliation entry 
@@ -79,10 +80,13 @@ class AffiliationEntry:
 
 # Class representing a set of Affiliations for a Person, identified by PID from participants.py
 class AffiliationsForPerson:
+    _log : logging.Logger
     _PID : str
     _affiliations: list[AffiliationEntry]
     
     def __init__(self,PID:str,affiliations:Optional[list[AffiliationEntry]]):
+        logging.basicConfig(level=os.environ.get("IETFDATA_LOGLEVEL", "INFO"))
+        self._log = logging.getLogger("ietfdata")
         self._PID = PID 
         self._affiliations = list()
         if affiliations is not None:
@@ -116,11 +120,11 @@ class AffiliationsForPerson:
                 # new affil is within this affil's period
                 if affil.match_OID(new_affil.get_OID()): 
                     # matching OIDs, no action
-                    print(f"OIDs {new_affil.get_OID()} already within the date range in the existing entry.")
+                    self._log.debug(f"OIDs {new_affil.get_OID()} already within the date range in the existing entry.")
                     return
                 else:
                     # non-matching OIDs, split
-                    print(f"New OIDs {new_affil.get_OID()} do not match but falls within the date range for {affil.get_OID()}: split.")
+                    self._log.debug(f"New OIDs {new_affil.get_OID()} do not match but falls within the date range for {affil.get_OID()}: split.")
                     old_affil_end_date = affil.get_end_date()
                     old_affil_OID = affil.get_OID()
                     self._affiliations[i].set_end_date(new_affil.get_end_date())
@@ -153,8 +157,8 @@ class AffiliationsForPerson:
                 affil.set_end_date(new_date)
                 return
         # does not fit within the existing timeline, append to extend
-        print(f"Appending new affilition with ID: {OID}, with date: {new_date}")
-        print(f"Extending last affiliation with ID: {self._affiliations[-1].get_OID()}, with date: {new_date}")
+        self._log.debug(f"Appending new affilition with ID: {OID}, with date: {new_date}")
+        self._log.debug(f"Extending last affiliation with ID: {self._affiliations[-1].get_OID()}, with date: {new_date}")
         self._affiliations[-1].set_end_date(new_date)
         self._affiliations.append(new_affil)
         return
@@ -229,7 +233,7 @@ class ParticipantsAffiliations:
         organisations = self._organisations
         print("Going through IETF stream RFCs:")
         for rfc in ri.rfcs(stream="IETF", since="1995-01"):
-            #print(f"   {rfc.doc_id}: {textwrap.shorten(rfc.title, width=80, placeholder='...')}")
+            print(f"   {rfc.doc_id}: {textwrap.shorten(rfc.title, width=80, placeholder='...')}")
             rfc_date = rfc.date()
             dt_document = dt.document_from_rfc(rfc.doc_id)
             if dt_document is not None:
@@ -270,7 +274,7 @@ class ParticipantsAffiliations:
         organisations = self._organisations
         print(f"Going through draft submissions from \"1995-01-01\" until \"{date.today().strftime('%Y-%m-%d')}\":")
         for submission in dt.submissions(date_since = "1995-01-01", date_until = date.today().strftime('%Y-%m-%d')):
-            print(f"{submission.name}-{submission.rev}")
+            print(f"   {submission.name}-{submission.rev}")
             tmp_date = submission.submission_date
             for author in submission.parse_authors():
                 if author['email'] is not None:
@@ -313,7 +317,6 @@ class ParticipantsAffiliations:
             
             tmp_meeting = dt.meeting(reg.meeting)
             if tmp_meeting is None:
-                print("Meeting is None, continue.")
                 continue
             tmp_date = tmp_meeting.date
             tmp_pid = None
@@ -374,7 +377,7 @@ class ParticipantsAffiliations:
 if __name__ == "__main__":
     print("*** ietfdata.tools.participants_affiliations")
     
-    if len(sys.argv) == 4:
+    if len(sys.argv) == 5:
         path = Path(sys.argv[4])
     else:
         print("Usage: python3 -m ietfdata.tools.participants_affiliations <ietfdata.sqlite> <participants.json> <organisations.json> <output.json>")

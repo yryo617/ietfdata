@@ -24,16 +24,16 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 import json
+import logging
 import sys
 import textwrap
-import warnings
+
 from pathlib import Path
 from typing  import List, Dict, Optional, Iterator
 
 from ietfdata.rfcindex        import *
 from ietfdata.datatracker     import *
 from ietfdata.datatracker_ext import *
-from ietfdata.mailarchive2    import *
 
 class Organisation:
     _preferred_name : Optional[str]
@@ -62,7 +62,6 @@ class Organisation:
         if name == self._preferred_name:
             pass
         elif name in self._names and self._preferred_name is None:
-            print(f"    Organisation has preferred name: \"{name}\"")
             self._preferred_name = name
         else:
             raise RuntimeError(f"Cannot set preferred name: {self._preferred_name} -> {name}")
@@ -84,10 +83,13 @@ class Organisation:
 
 
 class OrganisationDB:
+    _log           : logging.Logger
     _organisations : Dict[str,Organisation]
     _domains       : Dict[str,Organisation]
 
     def __init__(self) -> None:
+        logging.basicConfig(level=os.environ.get("IETFDATA_LOGLEVEL", "INFO"))
+        self._log           = logging.getLogger("ietfdata")
         self._organisations = {}
         self._domains       = {}
 
@@ -105,7 +107,7 @@ class OrganisationDB:
         Indicate that an organisation with the specified `name` exists
         """
         if name not in self._organisations:
-            print(f"    Organisation exists: \"{name}\"")
+            self._log.debug(f"    Organisation exists: \"{name}\"")
             self._organisations[name] = Organisation(name)
 
 
@@ -116,7 +118,7 @@ class OrganisationDB:
         """
         self.organisation_exists(name)
         if domain not in self._domains:
-            print(f"    Organisation has domain: \"{name}\" -> \"{domain}\"")
+            self._log.debug(f"    Organisation has domain: \"{name}\" -> \"{domain}\"")
             self._organisations[name].set_domain(domain)
             self._domains[domain] = self._organisations[name]
         else:
@@ -150,7 +152,7 @@ class OrganisationDB:
     def _merge(self, org1: Organisation, org2: Organisation) -> None:
         if org1 == org2:
             return
-        print(f"    Merging organisations: {org1.names()} -> {org2.names()}")
+        self._log.debug(f"    Merging organisations: {org1.names()} -> {org2.names()}")
         # Merge names from org1 into org2:
         for name in org1.names():
             org2.add_name(name)
@@ -291,6 +293,21 @@ def record_affiliation(orgs: OrganisationDB, name:str, email:str) -> Optional[Tu
                 orgs.organisations_match(name, full_name)
                 break
 
+    # If the organisation name contains a "/", add variants with or without
+    # surrounding spaces and match as matching.
+    if " / " in name:
+        no_slash = name.replace(" / ", "/")
+        orgs.organisation_exists(no_slash)
+        orgs.organisations_match(name, no_slash)
+    elif "/ " in name:
+        no_slash = name.replace("/ ", "/")
+        orgs.organisation_exists(no_slash)
+        orgs.organisations_match(name, no_slash)
+    elif " /" in name:
+        no_slash = name.replace(" /", "/")
+        orgs.organisation_exists(no_slash)
+        orgs.organisations_match(name, no_slash)
+
     # If the organisation name matches the domain, record the domain as
     # belonging to this organisation:
     org_domain = None
@@ -350,7 +367,6 @@ class OrganisationMatcher:
 
     def add(self, organisation:str, email:str):
         if organisation == "":
-            warnings.warn("organisation is an empty string, ignored.")
             return
         org_domain = record_affiliation(self._org_db, organisation, email)
         if org_domain is not None and org_domain not in self._org_domains:
@@ -365,8 +381,8 @@ class OrganisationMatcher:
         organisations, then calls the `add()` method in this class to record
         that information.
         """
-        dt = DataTracker(DTBackendArchive(sqlite_file=sqlite_file))
-        ri = RFCIndex(cache_dir = "cache")
+        dt = DataTracker(DTBackendArchive(sqlite_file))
+        ri = RFCIndex(cache_dir = "data")
 
         print("Finding organisations in RFC author affiliations:")
         for rfc in ri.rfcs(since="1995-01"):
@@ -405,6 +421,7 @@ class OrganisationMatcher:
         # Merge organisations that start with an organisation that matched its domain.
         # e.g., "Cisco Belgique" starts with "Cisco", which matched "cisco.com", so
         # should be merged with "Cisco".
+        print("Consolidating organisations:")
         for org_name in self._org_db.get_organisations():
             for name, domain in self._org_domains:
                 if org_name.startswith(f"{name} "):
@@ -421,11 +438,11 @@ class OrganisationMatcher:
 if __name__ == "__main__":
     print(f"*** ietfdata.tools.organisations")
 
-    if len(sys.argv) == 2:
+    if len(sys.argv) == 3:
         output_path = Path(sys.argv[2])
     else:
         print('')
-        print('Usage: python3 -m ietfdata.tools.organisations <ietfdata.sqlite> <output.json>')
+        print('Usage: python3 -m ietfdata.tools.organisations <ietfdata-dt.sqlite> <organisations.json>')
         print('')
         print('This tools find canonical names for the organisations with')
         print('which IETF participants are affiliated and identifies when')

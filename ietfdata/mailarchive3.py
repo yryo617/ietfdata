@@ -35,6 +35,7 @@ import time
 
 from datetime             import date, datetime, timedelta, timezone, UTC
 from email                import policy, message_from_bytes
+from email.header         import decode_header
 from email.headerregistry import Address
 from email.message        import Message
 from email.parser         import BytesHeaderParser
@@ -44,6 +45,8 @@ from graphlib             import TopologicalSorter
 from imapclient           import IMAPClient
 from pathlib              import Path
 from typing               import Dict, Iterator, List, Optional, Tuple, Union, Any
+
+from ietfdata.dtbackend   import *
 
 # The mailarchive3 package is intended to be a drop-in replacement for the
 # mailarchive2 package, storing messages in a local sqlite3 database rather
@@ -114,20 +117,32 @@ class Envelope:
         return str(res[0])
 
 
-    def from_(self) -> Address:
+    def from_(self) -> Optional[Address]:
         """
         Retrieve the parsed "From:" address from the message.
 
         The mailarchive3 library uses a number of heuristics to correct
         malformed headers, so the value returned might differ from the
-        uncorrected value returned by calling `header("from")`.
+        uncorrected value returned by calling `header("from")`. If the
+        address is missing or unparsable, None is returned.
 
         New in mailarchive3.
         """
         dbc = self._archive._db.cursor()
         sql = "SELECT from_name, from_addr FROM ietf_ma_hdr WHERE message_num = ?;"
-        res = dbc.execute(sql, (self._message_num, )).fetchone()
-        return Address(display_name = res[0], addr_spec = res[1])
+        name, addr = dbc.execute(sql, (self._message_num, )).fetchone()
+
+        # Check the name is valid:
+        if name is None:
+            name = ""
+
+        # Check the addr is valid:
+        if addr is None or addr == "":
+            return None
+        if addr.count("@") != 1:
+            raise RuntimeError(f"Invalid From: addr in {self._message_num}: {addr}")
+
+        return Address(display_name = name, addr_spec = addr)
 
 
     def to(self) -> List[Address]:
@@ -354,12 +369,12 @@ class EmailPolicyCustom(EmailPolicy):
         value = value.rstrip('\r\n')
 
         if name.lower() == "to" or name.lower() == "cc":
-            value = value.replace("\r\n", "")
+            # Many messages sent to ietf-announce have malformed "To:" and "Cc:" headers,
+            # some of which are so corrupt that they make the Python email package throw
+            # an exception ('Group' object has no attribute 'local_part').  Rewrite such
+            # headers to use the canonical ietf-announce@ietf.org list address.
+            value = value.replace("\r\n", " ")
             patterns_to_replace = [
-                # Many messages sent to ietf-announce have malformed "To:" and "Cc:" headers,
-                # some of which are so corrupt that they make the Python email package throw
-                # an exception ('Group' object has no attribute 'local_part').  Rewrite such
-                # headers to use the canonical ietf-announce@ietf.org list address.
                 (r'("IETF-Announce:; ; ; ; ; @tis.com"@tis.com[; ]+ , )(.*)', r'ietf-announce@ietf.org, \2'),
                 (r'(.*)(IETF-Announce:[ ;,]+[a-zA-Z\.@:;-]+$)', r'\1ietf-announce@ietf.org'),
                 (r'(.*)(IETF-Announce:(; )+[; a-z\.@\r\n]+)',   r'\1ietf-announce@ietf.org'),
@@ -386,126 +401,276 @@ class EmailPolicyCustom(EmailPolicy):
                 (r'IETF-Announce: ;',                        r'ietf-announce@ietf.org'),
                 (r'IETF-Announce:;',                         r'ietf-announce@ietf.org'),
                 (r'IETF-Announce:',                          r'ietf-announce@ietf.org'),
+                (r'^IETF-Announce$',                         r'ietf-announce@ietf.org'),
                 # Rewrite variants of "undisclosed-recipients; ;" into a consistent form:
                 (r'("?[Uu]ndisclosed.recipients"?: ;+)(, @[a-z\.]+)?(.*)',                        r'undisclosed-recipients: ;\3'),
                 (r'(.*)(unlisted-recipients:; \(no To-header on input\))(.*)',                    r'\1undisclosed-recipients: ;\3'),
                 (r'(.*)(random-recipients:;;;@cs.utk.edu; \(info-mime and ietf-822 lists\))(.*)', r'\1undisclosed-recipients: ;\3'),
                 (r'(.*)("[A-Za-z\.]+":;+@tislabs.com;;;)(.*)',                                    r'\1undisclosed-recipients: ;\3'),
                 (r'undisclosed-recipients:;;:;',                                                  r'undisclosed-recipients: ;'),
+                # Rewrite MIME encoded headers that decode to values containing \r\n
+                (r'=\?ISO-8859-1\?B\?QWJhcmJhbmVsLA0KICAgIEJlbmphbWlu\?=',  r'Benjamin Abarbanel'),
+                (r'=\?ISO-8859-15\?B\?V2lqbmVuLA0KICAgIEJlcnQgKEJlcnQp\?=', r'Bert Wijnen'),
+                (r'=\?ISO-8859-15\?B\?UGV0ZXJzb24sDQogICAgSm9u\?=',         r'Jon Peterson'),
                 # Rewrite other problematic headers:
-                (r'(moore@cs.utk.edu)?(, )?(authors:;+@cs.utk.edu;+)(.*)', r'\1\4'),
-                (r'(RFC 3023 authors: ;)',                                 r'mmurata@trl.ibm.co.jp, simonstl@simonstl.com, dan@dankohn.com'),
-                (r'=\?ISO-8859-1\?B\?QWJhcmJhbmVsLA0KICAgIEJlbmphbWlu\?=', r'Benjamin Abarbanel'),
-                (r'=\?ISO-8859-15\?B\?UGV0ZXJzb24sDQogICAgSm9u\?=',        r'Jon Peterson'),
+                (r'(moore@cs.utk.edu)?(, )?(authors:;+@cs.utk.edu;+)(.*)',  r'\1\4'),
+                (r'(RFC 3023 authors: ;)',                                  r'mmurata@trl.ibm.co.jp, simonstl@simonstl.com, dan@dankohn.com'),
+                (r'=\?gb2312\?q\?=D1=F9_<1@21cn.com>\?=',                   r'1@21cn.com'),
+                (r'(.*Denny Vrande)(.*)(<denny.vrandecic@wikimedia.de>.*)', r'\1 \3'),
+                (r'(.*)("Martin J. =\?utf-8\?Q\?D=C3=BCrst"\?=)(.*)',       r'\1Martin J. Dürst\3'),
             ]
             for (pattern, replacement) in patterns_to_replace:
                 new_value = re.sub(pattern, replacement, value)
                 if new_value != value:
-                    # print(f"header_reader: [{value}] -> [{new_value}]")
+                    try:
+                        print(f"header_source_parse: rewrite {name}: {value} -> {new_value}")
+                    except:
+                        print(f"header_source_parse: rewrite {name}: ?unprintable? -> {new_value}")
+                    value = new_value
+            value = value.rstrip(",")
+
+        if name.lower() == "from":
+            # There are also some messages with unparsable "From:" headers that need to
+            # be written into something that Python can handle:
+            value = value.replace("\r\n", " ")
+            patterns_to_replace = [
+                (r'(.D. J. Bernstein.)(.*)(@cr.yp.to>)', r'\1 <djb@cr.yp.to>'),
+            ]
+            for (pattern, replacement) in patterns_to_replace:
+                new_value = re.sub(pattern, replacement, value)
+                new_value = new_value.rstrip(",")
+                if new_value != value:
+                    try:
+                        print(f"header_source_parse: rewrite {name}: {value} -> {new_value}")
+                    except:
+                        print(f"header_source_parse: rewrite {name}: ?unprintable? -> {new_value}")
                     value = new_value
                     break
 
         return (name, value)
 
 
+def _fixup_from_addr_0at(uidvalidity:int, uid:int, from_name:str, from_addr:str):
+    # Fix From: header when the from_addr does not conain an @
+    if " at " in from_addr:
+        repl_addr = from_addr.replace(" at ", "@")
+        print(f"_fixup_from_addr_0at: rewrite From: \"{from_addr}\" -> \"{repl_addr}\"")
+        return from_name, repl_addr
 
-def _parse_hdr_from(uid, msg):
+    if from_name == "":
+        print(f"_fixup_from_addr_0at: returned \"{from_addr}\" as name with no address (uid={uid})")
+        return from_addr, None
+    else:
+        print(f"_fixup_from_addr_0at: cannot rewrite From: \"{from_addr}\" (uid={uid})")
+        return from_name, from_addr
+
+
+def _fixup_from_addr_1at(uidvalidity:int, uid:int, from_name:str, from_addr:str):
+    # Fix From: header when the from_addr contains one @ sign
+    patterns = [(r'(.*)( <)([^ ]+)( \()(.*)(\))', r'\5', r'\3'), # e.g., Spencer Dawkins <spencer@mcsr-labs.org (Spencer Dawkins)
+                (r'(.*)( on behalf of )(.*)',     r'\3', r'\1'), # e.g., netext-bounces@mail.mobileip.jp on behalf of Domagoj Premec
+                (r'(")([^"]+ [^"]+)("@)([A-Za-z0-9\.]+)', r'\2', None), # e.g., "Paul Barajas"@core3.amsl.com
+                ]
+    for pattern, name_sub, addr_sub in patterns:
+        if re.fullmatch(pattern, from_addr):
+            repl_name = re.sub(pattern, name_sub, from_addr)
+            if addr_sub is not None:
+                repl_addr = re.sub(pattern, addr_sub, from_addr)
+            else:
+                repl_addr = ""
+            print(f"_fixup_from_addr_1at: rewrite [{from_name}] [{from_addr}] -> [{repl_name}] [{repl_addr}] (uid={uid})")
+            return repl_name, repl_addr
+
+    return from_name, from_addr
+
+
+def _fixup_from_addr_2at(uidvalidity:int, uid:int, from_name:str, from_addr:str):
+    # Fix From: header when the from_addr contains two @ signs
+    replacements = [('"CN=David Hemsath/OU=Endicott/O=IBM@IBMLMS01"@US.IBM.COM',        'hemsath@us.ibm.com'),
+                    ('"IAOC Chair <bob.hinden@gmail.com>"@core3.amsl.com',              'bob.hinden@gmail.com'),
+                    ('"Jürgen Schönwälder <j.schoenwaelder@jac"@ietfa.amsl.com',        'j.schoenwaelder@jacobs-university.de'),
+                    ('"maruyama@IBMUS"@US.IBM.COM',                                     'maruyama@us.ibm.com'),
+                    ('"maz1@miavx1.muohio.edu"@stream.mcs.muohio.edu',                  'maz1@miavx1.muohio.edu'),
+                    ('"Michael Tüxen <tuexen@fh-muenster.de>"@ietfa.amsl.com',          'tuexen@fh-muenster.de'),
+                    ('"postmaster@africaonline.co.ci"@pop1.africaonline.co.ci',         'postmaster@africaonline.co.ci'),
+                    ('"us4rmc::bajan@bunyip.com"@boco.enet.dec.com',                    'bajan@bunyip.com'),
+                    ('"us4rmc::raisch@internet.com"@boco.enet.dec.com',                 'raisch@internet.com'),
+                    ('"Xiaodong(Sheldon) Lee <lee@cnnic.cn>"@NeuStar.com',              'lee@cnnic.cn'),
+                    ('"Michelle Claudé <Michelle.Claude@prism.uvsq.fr>"@prism.uvsq.fr', 'Michelle.Claude@prism.uvsq.fr'),
+                    ('"kaufman@zk3.dec.com"@minsrv.enet.dec.com',                       'kaufman@zk3.dec.com'),
+                    ('"ietf-ipr@ietf.org"@ietfa.amsl.com',                              'ietf-ipr@ietf.org')]
+    for orig_addr, repl_addr in replacements:
+        if from_addr == orig_addr:
+            print(f"_fixup_from_addr_2at: rewrite From: \"{orig_addr}\" -> \"{repl_addr}\"")
+            return from_name, repl_addr
+    raise RuntimeError(f"Cannot fix from_addr containing two @ signs: (uidvalidity={uidvalidity} uid={uid}) {from_addr}")
+
+
+def _parse_header_from(uidvalidity:int, uid:int, msg) -> Tuple[Optional[str],Optional[str]]:
     """
     This is a private helper function - do not use.
     """
-    hdr = msg["from"]
-    if hdr is None:
+    from_hdr = msg["from"]
+    if from_hdr is None:
         # The "From:" header is missing
         return (None, None)
+
+    parts = decode_header(from_hdr)
+    init_hdr, init_charset = parts[0]
+    if isinstance(init_hdr, str):
+        hdr, charset = parts[0]
+        assert charset is None
     else:
-        addr_list = getaddresses([hdr])
-        if len(addr_list) == 0:
-            # The "From:" header is present but empty:
-            from_name = None
-            from_addr = None
-        elif len(addr_list) == 1:
-            # The "From:" header contains a single address:
-            from_name, from_addr = addr_list[0]
-            if from_addr is not None and from_addr.count("@") == 0:
-                if " at " in from_addr:
-                    # Rewrite, e.g., "lear at cisco.com" -> "lear@cisco.com"
-                    from_addr = from_addr.replace(" at ", "@")
-                else:
-                    print(f"failed: _parse_hdr_from - no @ in 'From:' header (uid: {uid}) {hdr}")
-                    from_addr = None
-            if from_addr is not None and from_addr.count("@") == 2:
-                # The parsed messages contain a small number of mangled addresses with multiple @ signs; rewrite them:
-                replacements = [('"CN=David Hemsath/OU=Endicott/O=IBM@IBMLMS01"@US.IBM.COM',        'hemsath@us.ibm.com'),
-                                ('"IAOC Chair <bob.hinden@gmail.com>"@core3.amsl.com',              'bob.hinden@gmail.com'),
-                                ('"Jürgen Schönwälder <j.schoenwaelder@jac"@ietfa.amsl.com',        'j.schoenwaelder@jacobs-university.de'),
-                                ('"maruyama@IBMUS"@US.IBM.COM',                                     'maruyama@us.ibm.com'),
-                                ('"maz1@miavx1.muohio.edu"@stream.mcs.muohio.edu',                  'maz1@miavx1.muohio.edu'),
-                                ('"Michael Tüxen <tuexen@fh-muenster.de>"@ietfa.amsl.com',          'tuexen@fh-muenster.de'),
-                                ('"postmaster@africaonline.co.ci"@pop1.africaonline.co.ci',         'postmaster@africaonline.co.ci'),
-                                ('"us4rmc::bajan@bunyip.com"@boco.enet.dec.com',                    'bajan@bunyip.com'),
-                                ('"us4rmc::raisch@internet.com"@boco.enet.dec.com',                 'raisch@internet.com'),
-                                ('"Xiaodong(Sheldon) Lee <lee@cnnic.cn>"@NeuStar.com',              'lee@cnnic.cn'),
-                                ('"Michelle Claudé <Michelle.Claude@prism.uvsq.fr>"@prism.uvsq.fr', 'Michelle.Claude@prism.uvsq.fr'),
-                                ('"kaufman@zk3.dec.com"@minsrv.enet.dec.com',                       'kaufman@zk3.dec.com'),
-                                ('"ietf-ipr@ietf.org"@ietfa.amsl.com',                              'ietf-ipr@ietf.org')]
-                for orig, repl in replacements:
-                    if from_addr == orig:
-                        from_addr = repl
-                        print(f"_parse_hdr_from: {orig} -> {repl}")
-        elif len(addr_list) > 1:
-            # The "From:" header contains multiple addresses; use the first one with a valid domain:
-            from_name = None
-            from_addr = None
-            for group in hdr.groups:
-                if   len(group.addresses) == 0:
-                    pass
-                elif len(group.addresses) == 1:
-                    if "." in group.addresses[0].domain: # We consider the domain to be valid if it contains a "."
-                        from_name = group.addresses[0].display_name
-                        from_addr = group.addresses[0].addr_spec
-                        break
-                else:
-                    raise RuntimeError(f"Cannot parse \"From:\" header: uid={uid} - multiple addresses in group")
-            # print(f"parse_hdr_from: ({uid}) multiple addresses [{hdr}] -> [{from_name}],[{from_addr}]")
-        else:
-            raise RuntimeError(f"Cannot parse \"From:\" header: uid={uid} cannot happen")
-            sys.exit(1)
+        hdr = ""
+        for part_bytes, charset in parts:
+            if charset is None or charset == "unknown-8bit":
+                part_text = part_bytes.decode(errors="backslashreplace")
+            else:
+                part_text = part_bytes.decode(charset, errors="backslashreplace")
+            hdr = hdr + part_text
 
-        if from_addr == "":
-           from_addr = None
+    addr_list = getaddresses([hdr])
+    if len(addr_list) == 0:
+        # The "From:" header is present but empty:
+        from_name = ""
+        from_addr = ""
+    elif len(addr_list) == 1:
+        # The "From:" header contains a single address:
+        from_name, from_addr = addr_list[0]
+        if from_addr is not None and from_addr.count("@") == 0:
+            from_name, from_addr = _fixup_from_addr_0at(uidvalidity, uid, from_name, from_addr)
+        if from_addr is not None and from_addr.count("@") == 1:
+            from_name, from_addr = _fixup_from_addr_1at(uidvalidity, uid, from_name, from_addr)
+        if from_addr is not None and from_addr.count("@") == 2:
+            from_name, from_addr = _fixup_from_addr_2at(uidvalidity, uid, from_name, from_addr)
+        if from_addr is not None and from_addr.count("@") >= 2:
+            raise RuntimeError("Cannot fix from address with more than two @ signs")
+    elif len(addr_list) > 1:
+        # The "From:" header contains multiple addresses; use the first one with a valid domain:
+        from_name = ""
+        from_addr = ""
+        for group in from_hdr.groups:
+            if   len(group.addresses) == 0:
+                pass
+            elif len(group.addresses) == 1:
+                if "." in group.addresses[0].domain: # We consider the domain to be valid if it contains a "."
+                    from_name = group.addresses[0].display_name
+                    from_addr = group.addresses[0].addr_spec
+                    break
+            else:
+                raise RuntimeError(f"Cannot parse \"From:\" header: uid={uid} - multiple addresses in group")
+        if from_addr is not None and from_addr.count("@") == 0:
+            from_name, from_addr = _fixup_from_addr_0at(uidvalidity, uid, from_name, from_addr)
+        if from_addr is not None and from_addr.count("@") == 1:
+            from_name, from_addr = _fixup_from_addr_1at(uidvalidity, uid, from_name, from_addr)
+        if from_addr is not None and from_addr.count("@") == 2:
+            from_name, from_addr = _fixup_from_addr_2at(uidvalidity, uid, from_name, from_addr)
+        if from_addr is not None and from_addr.count("@") >= 2:
+            raise RuntimeError("Cannot fix from address with more than two @ signs")
+        print(f"_parse_header_from: (uid={uid}) multiple addresses [{hdr}] -> [{from_name}] [{from_addr}]")
+    else:
+        raise RuntimeError(f"Cannot parse \"From:\" header: uid={uid} cannot happen")
 
+    # The result returned here is stored in the database and later
+    # returned an an Address object. Check if from_name, from_addr
+    # are parsable into such an object and return them if so, If
+    # not, return (None, None) to indicate a failure.
+    try:
+        discarded = Address(display_name = from_name, addr_spec = from_addr)
         if from_name == "":
-            from_name = None
+            return_from = None
+        else:
+            return_from = from_name
+        if from_addr == None:
+            return_addr = None
+        else:
+            return_addr = from_addr
+        return (return_from, return_addr)
+    except:
+        print(f"_parse_header_from: cannot convert to Address (uid={uid}):")
+        print(f"   from header: {hdr}")
+        print(f"   parsed name: {from_name}")
+        print(f"   parsed addr: {from_addr}")
+        return (None, None)
 
-        return (from_name, from_addr)
 
 
-def _parse_hdr_to_cc(uid, msg, to_cc):
+def _parse_header_to_cc(uid, msg, to_cc):
     """
     This is a private helper function - do not use.
     """
-    try:
-        hdr = msg[to_cc]
-        if hdr is None:
-            return []
-        else:
-            try:
-                headers = []
-                index = 0
-                for name, addr in getaddresses([hdr]):
-                    headers.append((index, name, addr))
-                    index += 1
-                return headers
-            except:
-                print(f"failed: _parse_hdr_to_cc (uid: {uid}) {hdr}")
-                return []
-    except Exception as e: 
-        print(f"failed: _parse_hdr_to_cc (uid: {uid}) cannot extract {to_cc} header")
-        print(f"  {e}")
+    to_cc_hdr = msg[to_cc]
+    if to_cc_hdr is None:
         return []
+    else:
+        addr_list = getaddresses([to_cc_hdr])   # Should use 'strict=False'?
+        if len(addr_list) == 0:
+            raise RuntimeError(f"_parse_header_to_cc: empty or unparseable {to_cc} header: uid={uid}, hdr={to_cc_hdr}")
+        elif len(addr_list) > 0:
+            headers = []
+            index   = 0
+            for name, addr in addr_list:
+                # Decode MIME-encoded internationalised names:
+                parts = decode_header(name)
+                init_name, init_charset = parts[0]
+                if isinstance(init_name, str):
+                    decoded_name, charset = parts[0]
+                    assert charset is None
+                else:
+                    decoded_name = ""
+                    for part_bytes, charset in parts:
+                        if charset is None or charset == "unknown-8bit":
+                            part_text = part_bytes.decode(errors="backslashreplace")
+                        else:
+                            # The "To:" header for ipv6/41694 has a malformed charset that crashes part_bytes.decode()
+                            if charset == "ut f-8":
+                                charset = "utf-8"
+                            part_text = part_bytes.decode(charset, errors="backslashreplace")
+                        decoded_name = decoded_name + part_text
+
+                # Fix-up addresses:
+                addr = addr.strip()
+
+                if addr.endswith("@dmarc.ietf.org"):
+                    fixed_addr = addr[:-15].replace("=40", "@")
+                    #print(f"_parse_header_to_cc: undo DMARC {to_cc} processing (uid={uid}): {addr} -> {fixed_addr}")
+                    addr = fixed_addr
+
+                if " at " in addr and addr.count("@") == 0:
+                    fixed_addr = addr.replace(" at ", "@")
+                    if fixed_addr.startswith('"') and fixed_addr.endswith('"'):
+                        fixed_addr = fixed_addr[1:-1]
+                    print(f"_parse_header_to_cc: undo anti-spam {to_cc} processing (uid={uid}): {addr} -> {fixed_addr}")
+                    addr = fixed_addr
+
+                # Discard malfored addresses:
+                if addr != "" and addr.count("@") == 0:
+                    print(f"_parse_header_to_cc: discarded malformed {to_cc} address (1) (uid={uid}): [{decoded_name}] [{addr}]")
+                    continue
+                if addr != "" and addr.count("@") >= 2:
+                    print(f"_parse_header_to_cc: discarded malformed {to_cc} address (2) (uid={uid}): [{decoded_name}] [{addr}]")
+                    continue
+
+                # The headers extracted here are stored in the database and later
+                # returned an Address objects. Check if decoded_name, addr can be
+                # converted into such an object, discarding unusable values.
+                try:
+                    if decoded_name == "" and addr == "":
+                        # print(f"_parse_header_to_cc: skipped empty {to_cc} header (uid={uid}):")
+                        pass
+                    else:
+                        discarded = Address(display_name = decoded_name, addr_spec = addr)
+                        headers.append((index, decoded_name, addr))
+                except:
+                    print(f"_parse_header_to_cc: discarded malformed {to_cc} address (3) (uid={uid}): [{decoded_name}] [{addr}]")
+
+                index += 1
+            return headers
+        else:
+            raise RuntimeError(f"_parse_header_to_cc: cannot parse {to_cc} header: uid={uid}, hdr={to_cc_hdr}")
 
 
-def _parse_hdr_subject(uid, msg):
+def _parse_header_subject(uid, msg):
     """
     This is a private helper function - do not use.
     """
@@ -516,7 +681,7 @@ def _parse_hdr_subject(uid, msg):
         return hdr.strip()
 
 
-def _parse_hdr_date(uid, msg):
+def _parse_header_date(uid, msg):
     """
     This is a private helper function - do not use.
     """
@@ -528,7 +693,7 @@ def _parse_hdr_date(uid, msg):
         # Standard date format:
         temp = parsedate_to_datetime(hdr)
         date = temp.astimezone(UTC).isoformat()
-        # print(f"parse_hdr_date: okay (0): {date} | {hdr}")
+        # print(f"_parse_header_date: okay (0): {date} | {hdr}")
         return date
     except:
         try:
@@ -538,28 +703,28 @@ def _parse_hdr_date(uid, msg):
             split.append("+0000")
             joined = " ".join(split)
             date = parsedate_to_datetime(joined).astimezone(UTC).isoformat()
-            # print(f"parse_hdr_date: okay (1): {date} | {hdr}")
+            # print(f"_parse_header_date: okay (1): {date} | {hdr}")
             return date
         except:
             try:
                 # Non-standard date format: 04-Jan-93 13:22:13 (assume UTC timezone)
                 temp = datetime.strptime(hdr, "%d-%b-%y %H:%M:%S")
                 date = temp.astimezone(UTC).isoformat()
-                # print(f"parse_hdr_date: okay (2): {date} | {hdr}")
+                # print(f"_parse_header_date: okay (2): {date} | {hdr}")
                 return date
             except:
                 try:
                     # Non-standard date format: 30-Nov-93 17:23 (assume UTC timezone)
                     temp = datetime.strptime(hdr, "%d-%b-%y %H:%M")
                     date = temp.astimezone(UTC).isoformat()
-                    # print(f"parse_hdr_date: okay (3): {date} | {hdr}")
+                    # print(f"_parse_header_date: okay (3): {date} | {hdr}")
                     return date
                 except:
                     try:
                         # Non-standard date format: 2006-07-29 00:55:01 (assume UTC timezone)
                         temp = datetime.strptime(hdr, "%Y-%m-%d %H:%M:%S")
                         date = temp.astimezone(UTC).isoformat()
-                        # print(f"parse_hdr_date: okay (4): {date} | {hdr}")
+                        # print(f"_parse_header_date: okay (4): {date} | {hdr}")
                         return date
                     except:
                         try:
@@ -567,15 +732,15 @@ def _parse_hdr_date(uid, msg):
                             tmp1 = hdr.replace(": ", ":0").replace("  ", " 0")
                             tmp2 = parsedate_to_datetime(tmp1)
                             date = tmp2.astimezone(UTC).isoformat()
-                            # print(f"parse_hdr_date: okay (5): {date} | {hdr}")
+                            # print(f"_parse_header_date: okay (5): {date} | {hdr}")
                             return date
 
                         except:
-                            print(f"failed: _parse_hdr_date (uid: {uid}) {hdr}")
+                            print(f"_parse_header_date: invalid Date: {hdr} (uid: {uid})")
                             return None
 
 
-def _parse_hdr_message_id(uid, msg):
+def _parse_header_message_id(uid, msg):
     """
     This is a private helper function - do not use.
     """
@@ -586,7 +751,7 @@ def _parse_hdr_message_id(uid, msg):
         return hdr.strip()
 
 
-def _parse_hdr_in_reply_to(uid, msg):
+def _parse_header_in_reply_to(uid, msg):
     """
     This is a private helper function - do not use.
     """
@@ -599,7 +764,7 @@ def _parse_hdr_in_reply_to(uid, msg):
     return None
 
 
-def _parse_message(uid, raw):
+def _parse_message(uidvalidity:int, uid:int, raw):
     """
     This is a private helper function - do not use.
     """
@@ -607,18 +772,18 @@ def _parse_message(uid, raw):
 
     msg = BytesHeaderParser(policy=parsing_policy).parsebytes(raw)
 
-    from_name, from_addr = _parse_hdr_from(uid, msg)
+    from_name, from_addr = _parse_header_from(uidvalidity, uid, msg)
 
     res = {
             "uid"         : uid,
             "from_name"   : from_name,
             "from_addr"   : from_addr,
-            "to"          : _parse_hdr_to_cc(uid, msg, "to"),
-            "cc"          : _parse_hdr_to_cc(uid, msg, "cc"),
-            "subject"     : _parse_hdr_subject(uid, msg),
-            "date"        : _parse_hdr_date(uid, msg),
-            "message_id"  : _parse_hdr_message_id(uid, msg),
-            "in_reply_to" : _parse_hdr_in_reply_to(uid, msg),
+            "to"          : _parse_header_to_cc(uid, msg, "to"),
+            "cc"          : _parse_header_to_cc(uid, msg, "cc"),
+            "subject"     : _parse_header_subject(uid, msg),
+            "date"        : _parse_header_date(uid, msg),
+            "message_id"  : _parse_header_message_id(uid, msg),
+            "in_reply_to" : _parse_header_in_reply_to(uid, msg),
             "raw_data"    : raw
           }
 
@@ -642,10 +807,14 @@ class MailingList:
         return self._name
 
 
-    def uidvalidity(self) -> int:
+    def uidvalidity(self) -> Optional[int]:
         dbc = self._archive._db.cursor()
         sql = "SELECT uidvalidity FROM ietf_ma_lists WHERE name = (?);"
-        return int(dbc.execute(sql, (self._name, )).fetchone()[0])
+        res = dbc.execute(sql, (self._name, )).fetchone()[0]
+        if res is None:
+            return None
+        else:
+            return int(res)
 
 
     def num_messages(self) -> int:
@@ -668,7 +837,8 @@ class MailingList:
         """
         dbc = self._archive._db.cursor()
         sql = "SELECT message_num FROM ietf_ma_msg WHERE mailing_list = ? and uidvalidity = ? and uid = ?;"
-        res = dbc.execute(sql, (self._name, self.uidvalidity(), uid)).fetchone()
+        arg = (self._name, self.uidvalidity(), uid)
+        res = dbc.execute(sql, arg).fetchone()
         if res is None:
             return None
         else:
@@ -682,11 +852,11 @@ class MailingList:
         Return the envelopes containing the specified messages from this mailing list.
         """
         dbc = self._archive._db.cursor()
-        sql = "SELECT uid FROM ietf_ma_msg WHERE mailing_list = ? AND uidvalidity = ? AND date_received >= ? AND date_received < ?;"
-        for uid in map(lambda x : x[0], dbc.execute(sql, (self.name(), self.uidvalidity(), received_after, received_before))):
-            msg = self.message(uid)
-            assert msg is not None
-            yield msg
+        sql = "SELECT message_num FROM ietf_ma_msg WHERE mailing_list = ? AND uidvalidity = ? AND date_received >= ? AND date_received < ?;"
+        arg = (self.name(), self.uidvalidity(), received_after, received_before)
+        for res in map(lambda x : x[0], dbc.execute(sql, arg).fetchall()):
+            assert res is not None
+            yield Envelope(self._archive, res)
 
 
     def messages_as_dataframe(self,
@@ -713,7 +883,6 @@ class MailingList:
         return df
 
 
-    # FIXME: verbose is ignored
     def update(self, verbose=True) -> List[int]:
         """
         Update the local copy of this mailing list from the IMAP server.
@@ -724,7 +893,10 @@ class MailingList:
         from the list. Subsequent calls to `update()` only fetch the new
         messages and so are much faster.
         """
-        self._archive._log.info(f"mailarchive3:update: {self._name}")
+        if verbose:
+            print(f"Downloading {self._name}")
+        else:
+            self._archive._log.info(f"mailarchive3:update: {self._name}")
         with IMAPClient(self._archive._imap_server, ssl=True, use_uid=True) as imap:
             self._archive._log.debug(f"mailarchive3:update: connected")
             imap.login("anonymous", "anonymous")
@@ -764,12 +936,12 @@ class MailingList:
                 self._archive._db.commit()
             if len(msg_to_fetch) > 0:
                 # If we downloaded any messages, rebuild the dependent tables
-                self.reindex()
+                self.reindex(verbose)
         return msg_to_fetch
 
 
 
-    def reindex(self) -> None:
+    def reindex(self, verbose=True) -> None:
         """
         Rebuild the database tables indexing this mailing list.
 
@@ -790,10 +962,16 @@ class MailingList:
         New in mailarchive3
         """
         if self.num_messages() == 0:
-            self._archive._log.info(f"mailarchive3:reindex: {self._name} has no messages")
+            if verbose:
+                print(f"Re-indexing {self._name} (no messages)")
+            else:
+                self._archive._log.info(f"mailarchive3:reindex: {self._name} has no messages")
             return
         else:
-            self._archive._log.info(f"mailarchive3:reindex: {self._name}")
+            if verbose:
+                print(f"Re-indexing {self._name}")
+            else:
+                self._archive._log.info(f"mailarchive3:reindex: {self._name}")
 
         dbc = self._archive._db.cursor()
         sql = "SELECT message_num, uid, message FROM ietf_ma_msg WHERE mailing_list = ? and uidvalidity = ?;"
@@ -802,7 +980,10 @@ class MailingList:
         for message_num, uid, message in res:
             self._archive._log.debug(f"mailarchive3:reindex: {self._name}/{uid}")
 
-            parsed_msg = _parse_message(uid, message)
+            uidvalidity = self.uidvalidity()
+            assert uidvalidity is not None
+
+            parsed_msg  = _parse_message(uidvalidity, uid, message)
             val = (message_num,
                    message_num,
                    parsed_msg["from_name"],
@@ -1156,10 +1337,10 @@ class MailArchive:
         self.update_mailing_list_names()
         for ml_name in self.mailing_list_names():
             ml = self.mailing_list(ml_name)
-            ml.update()
+            ml.update(verbose)
 
 
-    def reindex(self) -> None:
+    def reindex(self, verbose=True) -> None:
         """
         Rebuild the header indexes.
 
@@ -1179,7 +1360,7 @@ class MailArchive:
         """
         for ml_name in self.mailing_list_names():
             ml = self.mailing_list(ml_name)
-            ml.reindex()
+            ml.reindex(verbose)
 
 
     def mailing_list_names(self) -> Iterator[str]:

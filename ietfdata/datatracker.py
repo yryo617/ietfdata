@@ -298,8 +298,6 @@ class DataTracker:
 
 
     def people(self,
-            since : str ="1970-01-01T00:00:00",
-            until : str ="2038-01-19T03:14:07",
             name                : Optional[str] = None,
             name_contains       : Optional[str] = None,
             name_ascii          : Optional[str] = None,
@@ -307,20 +305,21 @@ class DataTracker:
             name_plain          : Optional[str] = None,
             name_plain_contains : Optional[str] = None) -> Iterator[Person]:
         """
-        A generator that returns people recorded in the datatracker. As of April
-        2018, there are approximately 21500 people recorded.
+        A generator that returns people recorded in the datatracker. As of
+        August 2025, there are approximately 45,000 people recorded.
 
         Parameters:
-            since         -- Only return people with timestamp after this
-            until         -- Only return people with timestamp before this
-            name_contains -- Only return peopls whose name containing this string
+            name                -- Return people where their name matches this value
+            name_contains       -- Return people where their name contains this value
+            name_ascii          -- Return people where the ASCII version of their name matches this value
+            name_ascii_contains -- Return people where the ASCII version of their name contains this value
+            name_plain          -- Return people where the plain version of their name matches this value
+            name_plain_contains -- Return people where the plain version of their name contains this value
 
         Returns:
             An iterator, where each element is as returned by the person() method
         """
         url = PersonURI(uri="/api/v1/person/person/")
-        url.params["time__gte"] = since
-        url.params["time__lt"]  = until
         if name is not None:
             url.params["name"] = name
         if name_contains is not None:
@@ -417,24 +416,19 @@ class DataTracker:
         yield from self._retrieve_multi(uri, HistoricalEmail)
 
 
+    # FIXME: add `addr` and `person` parameters
     def emails(self,
-               since : str ="1970-01-01T00:00:00",
-               until : str ="2038-01-19T03:14:07",
                addr_contains : Optional[str] = None) -> Iterator[Email]:
         """
         A generator that returns email addresses recorded in the datatracker.
 
         Parameters:
-            since         -- Only return email addresses with timestamp after this
-            until         -- Only return email addresses with timestamp before this
             addr_contains -- Only return email addresses containing this substring
 
         Returns:
             An iterator, where each element is an Email object
         """
         url = EmailURI(uri="/api/v1/person/email/")
-        url.params["time__gte"] = since
-        url.params["time__lt"]   = until
         if addr_contains is not None:
             url.params["address__contains"] = addr_contains
         yield from self._retrieve_multi(url, Email)
@@ -449,19 +443,12 @@ class DataTracker:
         return self._retrieve(document_uri, Document)
 
 
-    # WARNING: the `since` and `until` parameters refer to the dates when the document metadata
-    # was last modified, not the dates when the document was last updated. Use `submissions()`
-    # with `date_since` and `date_until` to find documents updated in a particular time window.
     def documents(self,
-            since   : str = "1970-01-01T00:00:00",
-            until   : str = "2038-01-19T03:14:07",
             doctype : Optional[DocumentType] = None,
             state   : Optional[DocumentState] = None,
             stream  : Optional[Stream]       = None,
             group   : Optional[Group]        = None) -> Iterator[Document]:
         url = DocumentURI(uri="/api/v1/doc/document/")
-        url.params["time__gte"] = since
-        url.params["time__lt"] = until
         if doctype is not None:
             url.params["type"] = doctype.slug
         if state is not None:
@@ -611,9 +598,8 @@ class DataTracker:
         return self._retrieve(event_uri, DocumentEvent)
 
 
+    # FIXME: add `rev` parameter
     def document_events(self,
-                        since      : str = "1970-01-01T00:00:00",
-                        until      : str = "2038-01-19T03:14:07",
                         doc        : Optional[Document] = None,
                         by         : Optional[Person]   = None,
                         event_type : Optional[str]      = None) -> Iterator[DocumentEvent]:
@@ -631,8 +617,6 @@ class DataTracker:
            A sequence of DocumentEvent objects
         """
         url = DocumentEventURI(uri="/api/v1/doc/docevent/")
-        url.params["time__gte"] = since
-        url.params["time__lt"] = until
         if doc is not None:
             url.params["doc"]  = doc.id
             url.params_alt["doc"] = doc.name
@@ -651,6 +635,7 @@ class DataTracker:
     def document_authors(self, document : Document) -> Iterator[DocumentAuthor]:
         url = DocumentAuthorURI(uri="/api/v1/doc/documentauthor/")
         url.params["document"] = document.id
+        url.params_alt["document"] = document.name
         yield from self._retrieve_multi(url, DocumentAuthor)
 
 
@@ -783,9 +768,8 @@ class DataTracker:
         return self._retrieve(ballot_event_uri, BallotDocumentEvent)
 
 
+    # FIXME: add `rev` parameter
     def ballot_document_events(self,
-                        since       : str = "1970-01-01T00:00:00",
-                        until       : str = "2038-01-19T03:14:07",
                         ballot_type : Optional[BallotType]    = None,
                         event_type  : Optional[str]           = None,
                         by          : Optional[Person]        = None,
@@ -794,8 +778,6 @@ class DataTracker:
         A generator returning information about ballot document events.
 
         Parameters:
-            since        -- Only return ballot document events with timestamp after this
-            until        -- Only return ballot document events with timestamp after this
             ballot_type  -- Only return ballot document events of this ballot type
             event_type   -- Only return ballot document events with this type
             by           -- Only return ballot document events by this person
@@ -805,8 +787,6 @@ class DataTracker:
            A sequence of BallotDocumentEvent objects
         """
         url = BallotDocumentEventURI(uri="/api/v1/doc/ballotdocevent/")
-        url.params["time__gte"] = since
-        url.params["time__lt"] = until
         if ballot_type is not None:
             url.params["ballot_type"] = ballot_type.id
         if by is not None:
@@ -830,6 +810,7 @@ class DataTracker:
         return self._retrieve(submission_uri, Submission)
 
 
+    # FIXME: add `group`, `name`, `rev`, `title_contains` parameters
     def submissions(self,
             date_since           : str = "1970-01-01",
             date_until           : str = "2038-01-19") -> Iterator[Submission]:
@@ -844,16 +825,12 @@ class DataTracker:
 
 
     def submission_events(self,
-                        since      : str = "1970-01-01T00:00:00",
-                        until      : str = "2038-01-19T03:14:07",
                         by         : Optional[Person]     = None,
                         submission : Optional[Submission] = None) -> Iterator[SubmissionEvent]:
         """
         A generator returning information about submission events.
 
         Parameters:
-            since      -- Only return submission events with timestamp after this
-            until      -- Only return submission events with timestamp after this
             by         -- Only return submission events by this person
             submission -- Only return submission events about this submission
 
@@ -861,8 +838,6 @@ class DataTracker:
            A sequence of SubmissionEvent objects
         """
         url = SubmissionEventURI(uri="/api/v1/submit/submissionevent/")
-        url.params["time__gte"] = since
-        url.params["time__lt"] = until
         if by is not None:
             url.params["by"] = by.id
         if submission is not None:
@@ -947,19 +922,16 @@ class DataTracker:
             raise RuntimeError("group_from_acronym: multiple groups returned, expected 0 or 1")
 
 
+    # FIXME: add `acronym`, `list_email` parameters
     def groups(self,
-            since         : str                  = "1970-01-01T00:00:00",
-            until         : str                  = "2038-01-19T03:14:07",
             name_contains : Optional[str]        = None,
-            state         : Optional[GroupState] = None,
+            group_state   : Optional[GroupState] = None,
             parent        : Optional[Group]      = None) -> Iterator[Group]:
         url = GroupURI(uri="/api/v1/group/group/")
-        url.params["time__gte"]       = since
-        url.params["time__lt"]       = until
         if name_contains is not None:
             url.params["name__contains"] = name_contains
-        if state is not None:
-            url.params["state"] = state.slug
+        if group_state is not None:
+            url.params["state"] = group_state.slug
         if parent is not None:
             url.params["parent"] = parent.id
         yield from self._retrieve_multi(url, Group)
@@ -976,14 +948,10 @@ class DataTracker:
 
 
     def group_histories(self,
-            since         : str                  = "1970-01-01T00:00:00",
-            until         : str                  = "2038-01-19T03:14:07",
             group         : Optional[Group]      = None,
             state         : Optional[GroupState] = None,
             parent        : Optional[Group]      = None) -> Iterator[GroupHistory]:
         url = GroupHistoryURI(uri="/api/v1/group/grouphistory/")
-        url.params["time__gte"]  = since
-        url.params["time__lt"]  = until
         if group is not None:
             url.params["group"] = group.id
         if state is not None:
@@ -998,20 +966,16 @@ class DataTracker:
 
 
     def group_events(self,
-            since         : str                  = "1970-01-01T00:00:00",
-            until         : str                  = "2038-01-19T03:14:07",
             by            : Optional[Person]     = None,
             group         : Optional[Group]      = None,
-            type          : Optional[str]        = None) -> Iterator[GroupEvent]:
+            event_type    : Optional[str]        = None) -> Iterator[GroupEvent]:
         url = GroupEventURI(uri="/api/v1/group/groupevent/")
-        url.params["time__gte"] = since
-        url.params["time__lt"]  = until
         if by is not None:
             url.params["by"] = by.id
         if group is not None:
             url.params["group"] = group.id
-        if type is not None:
-            url.params["type"]  = type
+        if event_type is not None:
+            url.params["type"]  = event_type
         yield from self._retrieve_multi(url, GroupEvent)
 
 
@@ -1039,13 +1003,9 @@ class DataTracker:
 
 
     def group_milestones(self,
-            since         : str                               = "1970-01-01T00:00:00",
-            until         : str                               = "2038-01-19T03:14:07",
             group         : Optional[Group]                   = None,
             state         : Optional[GroupMilestoneStateName] = None) -> Iterator[GroupMilestone]:
         url = GroupMilestoneURI(uri="/api/v1/group/groupmilestone/")
-        url.params["time__gte"]       = since
-        url.params["time__lt"]       = until
         if group is not None:
             url.params["group"] = group.id
         if state is not None:
@@ -1112,14 +1072,10 @@ class DataTracker:
 
 
     def group_milestone_histories(self,
-            since         : str                               = "1970-01-01T00:00:00",
-            until         : str                               = "2038-01-19T03:14:07",
             group         : Optional[Group]                   = None,
             milestone     : Optional[GroupMilestone]          = None,
             state         : Optional[GroupMilestoneStateName] = None) -> Iterator[GroupMilestoneHistory]:
         url = GroupMilestoneHistoryURI(uri="/api/v1/group/groupmilestonehistory/")
-        url.params["time__gte"]       = since
-        url.params["time__lt"]       = until
         if group is not None:
             url.params["group"] = group.id
         if milestone is not None:
@@ -1134,23 +1090,19 @@ class DataTracker:
 
 
     def group_milestone_events(self,
-            since         : str                        = "1970-01-01T00:00:00",
-            until         : str                        = "2038-01-19T03:14:07",
             by            : Optional[Person]           = None,
             group         : Optional[Group]            = None,
             milestone     : Optional[GroupMilestone]   = None,
-            type          : Optional[str]              = None) -> Iterator[GroupMilestoneEvent]:
+            event_type    : Optional[str]              = None) -> Iterator[GroupMilestoneEvent]:
         url = GroupMilestoneEventURI(uri="/api/v1/group/milestonegroupevent/")
-        url.params["time__gte"] = since
-        url.params["time__lt"]  = until
         if by is not None:
             url.params["by"] = by.id
         if group is not None:
             url.params["group"] = group.id
         if milestone is not None:
             url.params["milestone"] = milestone.id
-        if type is not None:
-            url.params["type"] = type
+        if event_type is not None:
+            url.params["type"] = event_type
         yield from self._retrieve_multi(url, GroupMilestoneEvent)
 
 
@@ -1159,14 +1111,10 @@ class DataTracker:
 
 
     def group_state_change_events(self,
-            since         : str                        = "1970-01-01T00:00:00",
-            until         : str                        = "2038-01-19T03:14:07",
             by            : Optional[Person]           = None,
             group         : Optional[Group]            = None,
             state         : Optional[GroupState]       = None) -> Iterator[GroupStateChangeEvent]:
         url = GroupStateChangeEventURI(uri="/api/v1/group/changestategroupevent/")
-        url.params["time__gte"]       = since
-        url.params["time__lt"]       = until
         if by is not None:
             url.params["by"] = by.id
         if group is not None:
@@ -1493,8 +1441,8 @@ class DataTracker:
 
 
     def ipr_disclosure_bases(self,
-            since              : str                             = "1970-01-01T00:00:00",
-            until              : str                             = "2038-01-19T03:14:07",
+            since              : str                             = "1970-01-01T00:00:00Z",
+            until              : str                             = "2038-01-19T03:14:07Z",
             by                 : Optional[Person]                = None,
             holder_legal_name  : Optional[str]                   = None,
             state              : Optional[IPRDisclosureState]    = None,
@@ -1521,8 +1469,8 @@ class DataTracker:
 
 
     def generic_ipr_disclosures(self,
-            since               : str                             = "1970-01-01T00:00:00",
-            until               : str                             = "2038-01-19T03:14:07",
+            since               : str                             = "1970-01-01T00:00:00Z",
+            until               : str                             = "2038-01-19T03:14:07Z",
             by                  : Optional[Person]                = None,
             holder_legal_name   : Optional[str]                   = None,
             holder_contact_name : Optional[str]                   = None,
@@ -1560,8 +1508,8 @@ class DataTracker:
 
 
     def holder_ipr_disclosures(self,
-            since                : str                             = "1970-01-01T00:00:00",
-            until                : str                             = "2038-01-19T03:14:07",
+            since                : str                             = "1970-01-01T00:00:00Z",
+            until                : str                             = "2038-01-19T03:14:07Z",
             by                   : Optional[Person]                = None,
             holder_legal_name    : Optional[str]                   = None,
             holder_contact_name  : Optional[str]                   = None,
@@ -1600,8 +1548,8 @@ class DataTracker:
 
 
     def thirdparty_ipr_disclosures(self,
-            since                : str                             = "1970-01-01T00:00:00",
-            until                : str                             = "2038-01-19T03:14:07",
+            since                : str                             = "1970-01-01T00:00:00Z",
+            until                : str                             = "2038-01-19T03:14:07Z",
             by                   : Optional[Person]                = None,
             holder_legal_name    : Optional[str]                   = None,
             ietfer_contact_email : Optional[str]                   = None,
@@ -1720,16 +1668,12 @@ class DataTracker:
 
 
     def review_requests(self,
-            since         : str                          = "1970-01-01T00:00:00",
-            until         : str                          = "2038-01-19T03:14:07",
             doc           : Optional[Document]           = None,
             requested_by  : Optional[Person]             = None,
             state         : Optional[ReviewRequestState] = None,
             team          : Optional[Group]              = None,
-            type          : Optional[ReviewType]         = None) -> Iterator[ReviewRequest]:
+            request_type  : Optional[ReviewType]         = None) -> Iterator[ReviewRequest]:
         url = ReviewRequestURI(uri="/api/v1/review/reviewrequest/")
-        url.params["time__gte"] = since
-        url.params["time__lt"]  = until
         if doc is not None:
             url.params["doc"] = doc.id
             url.params_alt["doc"] = doc.name
@@ -1739,8 +1683,8 @@ class DataTracker:
             url.params["state"] = state.slug
         if team is not None:
             url.params["team"] = team.id
-        if type is not None:
-            url.params["type"] = type.slug
+        if request_type is not None:
+            url.params["type"] = request_type.slug
         yield from self._retrieve_multi(url, ReviewRequest)
 
 
@@ -1749,10 +1693,10 @@ class DataTracker:
 
 
     def review_assignments(self,
-            assigned_since         : str                             = "1970-01-01T00:00:00",
-            assigned_until         : str                             = "2038-01-19T03:14:07",
-            completed_since        : str                             = "1970-01-01T00:00:00",
-            completed_until        : str                             = "2038-01-19T03:14:07",
+            assigned_since         : str                             = "1970-01-01T00:00:00Z",
+            assigned_until         : str                             = "2038-01-19T03:14:07Z",
+            completed_since        : str                             = "1970-01-01T00:00:00Z",
+            completed_until        : str                             = "2038-01-19T03:14:07Z",
             result                 : Optional[ReviewResultType]      = None,
             review_request         : Optional[ReviewRequest]         = None,
             reviewer               : Optional[Email]                 = None,
@@ -1778,14 +1722,10 @@ class DataTracker:
 
 
     def review_wishes(self,
-            since         : str                          = "1970-01-01T00:00:00",
-            until         : str                          = "2038-01-19T03:14:07",
             doc           : Optional[Document]           = None,
             person        : Optional[Person]             = None,
             team          : Optional[Group]              = None) -> Iterator[ReviewWish]:
         url = ReviewWishURI(uri="/api/v1/review/reviewwish/")
-        url.params["time__gte"]       = since
-        url.params["time__lt"]       = until
         if doc is not None:
             url.params["doc"] = doc.id
             url.params_alt["doc"] = doc.name
@@ -1822,22 +1762,12 @@ class DataTracker:
 
 
     def historical_review_requests(self,
-            since         : str                          = "1970-01-01T00:00:00",
-            until         : str                          = "2038-01-19T03:14:07",
-            history_since : str                          = "1970-01-01T00:00:00",
-            history_until : str                          = "2038-01-19T03:14:07",
-            history_type  : Optional[str]                = None,
-            id            : Optional[int]                = None,
             doc           : Optional[Document]           = None,
             requested_by  : Optional[Person]             = None,
             state         : Optional[ReviewRequestState] = None,
             team          : Optional[Group]              = None,
-            type          : Optional[ReviewType]         = None) -> Iterator[HistoricalReviewRequest]:
+            request_type  : Optional[ReviewType]         = None) -> Iterator[HistoricalReviewRequest]:
         url = HistoricalReviewRequestURI(uri="/api/v1/review/historicalreviewrequest/")
-        url.params["time__gte"]         = since
-        url.params["time__lt"]         = until
-        url.params["history_date__gt"] = history_since
-        url.params["history_date__lt"] = history_until
         if doc is not None:
             url.params["doc"] = doc.id
             url.params_alt["doc"] = doc.name
@@ -1847,8 +1777,8 @@ class DataTracker:
             url.params["state"] = state.slug
         if team is not None:
             url.params["team"] = team.id
-        if type is not None:
-            url.params["type"] = type.slug
+        if request_type is not None:
+            url.params["type"] = request_type.slug
         yield from self._retrieve_multi(url, HistoricalReviewRequest)
 
 
@@ -1911,16 +1841,9 @@ class DataTracker:
 
 
     def historical_reviewer_settings_all(self,
-            history_since : str                          = "1970-01-01T00:00:00",
-            history_until : str                          = "2038-01-19T03:14:07",
-            id            : Optional[int]                = None,
             person        : Optional[Person]             = None,
             team          : Optional[Group]              = None) -> Iterator[HistoricalReviewerSettings]:
         url = HistoricalReviewerSettingsURI(uri="/api/v1/review/historicalreviewersettings/")
-        url.params["history_date__gt"]       = history_since
-        url.params["history_date__lt"]       = history_until
-        if id is not None:
-            url.params["id"] = id
         if person is not None:
             url.params["person"] = person.id
         if team is not None:
@@ -1937,7 +1860,6 @@ class DataTracker:
             assigned_until         : str                             = "2038-01-19T03:14:07",
             completed_since        : str                             = "1970-01-01T00:00:00",
             completed_until        : str                             = "2038-01-19T03:14:07",
-            id                     : Optional[int]                   = None,
             result                 : Optional[ReviewResultType]      = None,
             review_request         : Optional[ReviewRequest]         = None,
             reviewer               : Optional[Email]                 = None,
@@ -1947,8 +1869,6 @@ class DataTracker:
         url.params["assigned_on__lt"]       = assigned_until
         url.params["completed_on__gt"]      = completed_since
         url.params["completed_on__lt"]      = completed_until
-        if id is not None:
-            url.params["id"] = id
         if result is not None:
             url.params["result"] = result.slug
         if review_request is not None:

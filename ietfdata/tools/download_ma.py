@@ -23,22 +23,17 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import sys
+
 from ietfdata.mailarchive3 import *
 
 if __name__ == "__main__":
-    if len(sys.argv) == 4:
-        sqlite_file  = sys.argv[1]
-        mailing_list = sys.argv[2]
-        uid          = sys.argv[3]
+    if len(sys.argv) == 2:
+        sqlite_file = sys.argv[1]
     else:
-        print("Usage: python3 -m ietfdata.tools.ma_msg <ietfdata.sqlite> <mailing_lis> <uid>")
+        print("Usage: python3 -m ietfdata.tools.download_ma <ietfdata-ma.sqlite>")
         sys.exit(1)
 
-    ma  = MailArchive(sqlite_file)
-    ml  = ma.mailing_list(mailing_list)
-    msg = ml.message(int(uid))
-    if msg is not None:
-        print(msg.contents())
-    else:
-        print("ERROR: cannot fetch {mailing_list}/{uid}")
+    ma = MailArchive(sqlite_file)
+    ma.update()
 
